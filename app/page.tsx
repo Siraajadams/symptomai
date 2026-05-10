@@ -27,6 +27,13 @@ const countryDialCodes: Record<string, string> = {
   'South Africa': '+27',
 };
 
+const emergencyContacts: Record<string, string> = {
+  'South Africa': '27823111111',
+  England: '44111',
+  Wales: '44111',
+  Scotland: '44111',
+};
+
 const initialForm: FormState = {
   name: '',
   dob: '',
@@ -46,6 +53,7 @@ const initialForm: FormState = {
 
 function calculateAge(dob: string) {
   if (!dob) return '';
+
   const birthDate = new Date(dob);
   const today = new Date();
 
@@ -134,11 +142,31 @@ export default function Home() {
 
   const carelinkUrl = 'https://cpnbs.carelink.digital/home';
 
-  const whatsappText = encodeURIComponent(
-    `SymptomAI referral request for ${form.name}. Outcome: ${result?.title}. Phone: ${form.dialCode}${form.phone}. Country: ${form.country}. Location: ${form.location}.`
+  const patientPhone = `${form.dialCode}${form.phone}`;
+
+  const standardWhatsappText = encodeURIComponent(
+    `SymptomAI referral request for ${form.name}. Outcome: ${result?.title}. Phone: ${patientPhone}. Country: ${form.country}. Location: ${form.location}.`
   );
 
-  const whatsappUrl = `https://wa.me/?text=${whatsappText}`;
+  const emergencyWhatsappText = encodeURIComponent(
+    `EMERGENCY TRIAGE ALERT
+
+Patient: ${form.name}
+Phone: ${patientPhone}
+Country: ${form.country}
+Location: ${form.location}
+Outcome: ${result?.title}
+
+SymptomAI identified emergency referral criteria. Please contact or assist the patient urgently.
+
+If immediate danger is present, the patient should call local emergency services immediately.`
+  );
+
+  const standardWhatsappUrl = `https://wa.me/?text=${standardWhatsappText}`;
+
+  const emergencyWhatsappUrl = `https://wa.me/${
+    emergencyContacts[form.country]
+  }?text=${emergencyWhatsappText}`;
 
   return (
     <main className="container">
@@ -157,9 +185,17 @@ export default function Home() {
           <h1>{result.title}</h1>
           <h2>{result.recommendation}</h2>
 
-          <p><b>Why:</b> {result.reason}</p>
-          <p><b>Clinical reference:</b> {result.reference}</p>
-          <p><b>Safety-net advice:</b> {result.safetyNet}</p>
+          <p>
+            <b>Why:</b> {result.reason}
+          </p>
+
+          <p>
+            <b>Clinical reference:</b> {result.reference}
+          </p>
+
+          <p>
+            <b>Safety-net advice:</b> {result.safetyNet}
+          </p>
 
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 20 }}>
             {result.level === 'EMERGENCY' && (
@@ -167,8 +203,13 @@ export default function Home() {
                 <a className="button danger" href="tel:112">
                   Call emergency services
                 </a>
-                <a className="button secondary" href={whatsappUrl}>
-                  Request paramedic / admin callback
+
+                <a
+                  className="button danger"
+                  href={emergencyWhatsappUrl}
+                  target="_blank"
+                >
+                  Contact emergency support
                 </a>
               </>
             )}
@@ -178,7 +219,12 @@ export default function Home() {
                 <a className="button" href={carelinkUrl} target="_blank">
                   Book doctor via Carelink
                 </a>
-                <a className="button secondary" href={whatsappUrl}>
+
+                <a
+                  className="button secondary"
+                  href={standardWhatsappUrl}
+                  target="_blank"
+                >
                   WhatsApp referral note
                 </a>
               </>
@@ -186,7 +232,11 @@ export default function Home() {
 
             {(result.level === 'PHARMACIST_CARE' ||
               result.level === 'SELF_CARE') && (
-              <a className="button secondary" href={whatsappUrl}>
+              <a
+                className="button secondary"
+                href={standardWhatsappUrl}
+                target="_blank"
+              >
                 Send advice / follow-up note
               </a>
             )}
@@ -206,10 +256,12 @@ export default function Home() {
         <section className="hero">
           <div className="card">
             <h1>60-second pharmacy triage</h1>
+
             <p>
               Capture basic details, screen red flags, and route patients to
               emergency care, doctor in pharmacy, pharmacist care, or self-care.
             </p>
+
             <a className="button" href="#triage">
               Start triage
             </a>
@@ -217,6 +269,7 @@ export default function Home() {
 
           <div className="card">
             <h2>Built for pharmacies</h2>
+
             <p>
               Safe red-flag triage, referral support, and basic analytics.
             </p>
@@ -309,6 +362,7 @@ export default function Home() {
                   readOnly
                   style={{ maxWidth: 90 }}
                 />
+
                 <input
                   className="input"
                   value={form.phone}
@@ -353,7 +407,9 @@ export default function Home() {
                 <option value="cough">Cough</option>
                 <option value="breathing">Breathing / asthma</option>
                 <option value="chest">Chest pain / palpitations</option>
-                <option value="abdominal">Stomach pain / vomiting / diarrhoea</option>
+                <option value="abdominal">
+                  Stomach pain / vomiting / diarrhoea
+                </option>
                 <option value="urinary">Urinary symptoms</option>
                 <option value="pain">Pain / headache</option>
                 <option value="skin">Skin / rash</option>
@@ -382,7 +438,8 @@ export default function Home() {
           <h2>Red flag check</h2>
 
           <p>
-            Select any serious symptom present. If unsure, select it and refer upwards.
+            Select any serious symptom present. If unsure, select it and refer
+            upwards.
           </p>
 
           {redFlagQuestions.map((q) => (
@@ -392,6 +449,7 @@ export default function Home() {
                 checked={form.redFlags.includes(q.id)}
                 onChange={() => toggleFlag(q.id)}
               />
+
               <span>{q.label}</span>
             </label>
           ))}
@@ -408,8 +466,10 @@ export default function Home() {
 
           <label className="check">
             <input type="checkbox" required />
+
             <span>
-              I understand this tool supports triage and does not replace a clinical diagnosis.
+              I understand this tool supports triage and does not replace a
+              clinical diagnosis.
             </span>
           </label>
 
