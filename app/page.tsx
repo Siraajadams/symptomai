@@ -3,244 +3,362 @@
 import { useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+function getSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-type Outcome =
-  | "Emergency referral"
-  | "Doctor in pharmacy"
-  | "Pharmacist care recommended";
+  if (!url || !key) {
+    console.error("Missing Supabase environment variables");
+    return null;
+  }
 
-export default function HomePage() {
+  return createClient(url, key);
+}
+
+type FormState = {
+  name: string;
+  dob: string;
+  gender: string;
+  pregnant: string;
+  country: string;
+  dialCode: string;
+  phone: string;
+  location: string;
+  symptoms: string;
+  fever: boolean;
+  chestPain: boolean;
+  breathing: boolean;
+  bleeding: boolean;
+};
+
+export default function Home() {
   const [loading, setLoading] = useState(false);
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<FormState>({
     name: "",
     dob: "",
     gender: "",
-    pregnant: "",
+    pregnant: "No",
     country: "South Africa",
     dialCode: "+27",
     phone: "",
     location: "",
     symptoms: "",
+    fever: false,
+    chestPain: false,
+    breathing: false,
+    bleeding: false,
   });
 
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
-
-  const countryCodes: Record<string, string> = {
-    "South Africa": "+27",
-    England: "+44",
-    Scotland: "+44",
-    Wales: "+44",
-  };
+  const [result, setResult] = useState("");
 
   const handleCountryChange = (country: string) => {
+    let dialCode = "+27";
+
+    if (country === "England") dialCode = "+44";
+    if (country === "Wales") dialCode = "+44";
+    if (country === "Scotland") dialCode = "+44";
+    if (country === "South Africa") dialCode = "+27";
+
     setForm({
       ...form,
       country,
-      dialCode: countryCodes[country],
+      dialCode,
     });
   };
 
-  const determineOutcome = (): Outcome => {
-    const s = form.symptoms.toLowerCase();
-
-    if (
-      s.includes("chest pain") ||
-      s.includes("stroke") ||
-      s.includes("shortness of breath") ||
-      s.includes("bleeding")
-    ) {
-      return "Emergency referral";
-    }
-
-    if (
-      s.includes("infection") ||
-      s.includes("fever") ||
-      s.includes("uti")
-    ) {
-      return "Doctor in pharmacy";
-    }
-
-    return "Pharmacist care recommended";
-  };
-
-  const getEmergencyWhatsapp = () => {
-    switch (form.country) {
-      case "South Africa":
-        return "https://wa.me/27820022000";
-      case "England":
-      case "Scotland":
-      case "Wales":
-        return "https://www.nhs.uk/nhs-services/urgent-and-emergency-care-services/";
-      default:
-        return "#";
-    }
-  };
-
-  const submitTriage = async () => {
+  const handleSubmit = async () => {
     setLoading(true);
 
-    const result = determineOutcome();
-    setOutcome(result);
+    let outcome = "Pharmacist care recommended";
 
-    await supabase.from("triage_records").insert([
-      {
-        name: form.name,
-        dob: form.dob,
-        gender: form.gender,
-        pregnant: form.pregnant,
-        country: form.country,
-        dial_code: form.dialCode,
-        phone: form.phone,
-        location: form.location,
-        symptoms: form.symptoms,
-        outcome: result,
-      },
-    ]);
+    const emergency =
+      form.chestPain ||
+      form.breathing ||
+      form.bleeding;
+
+    if (emergency) {
+      outcome = "Emergency referral required";
+    }
+
+    setResult(outcome);
+
+    const supabase = getSupabase();
+
+    if (!supabase) {
+      alert(
+        "Supabase not configured correctly in Vercel environment variables."
+      );
+      setLoading(false);
+      return;
+    }
+
+    try {
+      await supabase.from("triage_records").insert([
+        {
+          name: form.name,
+          dob: form.dob,
+          gender: form.gender,
+          pregnant: form.pregnant,
+          country: form.country,
+          dial_code: form.dialCode,
+          phone: form.phone,
+          location: form.location,
+          symptoms: form.symptoms,
+          fever: form.fever,
+          chest_pain: form.chestPain,
+          breathing: form.breathing,
+          bleeding: form.bleeding,
+          outcome,
+        },
+      ]);
+    } catch (error) {
+      console.error(error);
+    }
+
+    if (outcome === "Emergency referral required") {
+      let emergencyNumber = "082911";
+
+      if (form.country === "England") {
+        emergencyNumber = "999";
+      }
+
+      if (form.country === "Wales") {
+        emergencyNumber = "999";
+      }
+
+      if (form.country === "Scotland") {
+        emergencyNumber = "999";
+      }
+
+      const whatsappMessage = encodeURIComponent(
+        `SymptomAI Emergency Referral\n\nPatient: ${form.name}\nCountry: ${form.country}\nLocation: ${form.location}\nSymptoms: ${form.symptoms}\n\nOutcome: Emergency referral required`
+      );
+
+      window.open(
+        `https://wa.me/${emergencyNumber}?text=${whatsappMessage}`,
+        "_blank"
+      );
+    }
 
     setLoading(false);
   };
 
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow-lg p-8">
-        <h1 className="text-4xl font-bold mb-2">SymptomAI</h1>
-        <p className="text-gray-500 mb-8">
-          Right care. Right place. Right now.
-        </p>
+    <main className="min-h-screen bg-white p-6">
+      <div className="max-w-2xl mx-auto">
 
-        {!outcome && (
-          <div className="space-y-4">
-            <input
-              className="w-full border p-3 rounded-xl"
-              placeholder="Full Name"
-              value={form.name}
-              onChange={(e) =>
-                setForm({ ...form, name: e.target.value })
-              }
-            />
-
-            <input
-              type="date"
-              className="w-full border p-3 rounded-xl"
-              value={form.dob}
-              onChange={(e) =>
-                setForm({ ...form, dob: e.target.value })
-              }
-            />
-
-            <select
-              className="w-full border p-3 rounded-xl"
-              value={form.gender}
-              onChange={(e) =>
-                setForm({ ...form, gender: e.target.value })
-              }
-            >
-              <option value="">Select Gender</option>
-              <option>Male</option>
-              <option>Female</option>
-            </select>
-
-            {form.gender === "Female" && (
-              <select
-                className="w-full border p-3 rounded-xl"
-                value={form.pregnant}
-                onChange={(e) =>
-                  setForm({ ...form, pregnant: e.target.value })
-                }
-              >
-                <option value="">Pregnant?</option>
-                <option>No</option>
-                <option>Yes</option>
-              </select>
-            )}
-
-            <select
-              className="w-full border p-3 rounded-xl"
-              value={form.country}
-              onChange={(e) =>
-                handleCountryChange(e.target.value)
-              }
-            >
-              <option>South Africa</option>
-              <option>England</option>
-              <option>Scotland</option>
-              <option>Wales</option>
-            </select>
-
-            <div className="flex gap-2">
-              <input
-                className="w-24 border p-3 rounded-xl bg-gray-100"
-                value={form.dialCode}
-                readOnly
-              />
-
-              <input
-                className="flex-1 border p-3 rounded-xl"
-                placeholder="Phone Number"
-                value={form.phone}
-                onChange={(e) =>
-                  setForm({ ...form, phone: e.target.value })
-                }
-              />
-            </div>
-
-            <input
-              className="w-full border p-3 rounded-xl"
-              placeholder="Location"
-              value={form.location}
-              onChange={(e) =>
-                setForm({ ...form, location: e.target.value })
-              }
-            />
-
-            <textarea
-              className="w-full border p-3 rounded-xl h-32"
-              placeholder="Describe symptoms"
-              value={form.symptoms}
-              onChange={(e) =>
-                setForm({ ...form, symptoms: e.target.value })
-              }
-            />
-
-            <button
-              onClick={submitTriage}
-              disabled={loading}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-xl font-bold"
-            >
-              {loading ? "Submitting..." : "Run Triage"}
-            </button>
+        <div className="flex items-center gap-3 mb-8">
+          <div className="w-12 h-12 rounded-xl bg-black text-white flex items-center justify-center text-2xl">
+            +
           </div>
-        )}
 
-        {outcome && (
-          <div className="border-l-4 border-yellow-500 bg-yellow-50 p-6 rounded-xl">
-            <h2 className="text-3xl font-bold mb-4">
-              {outcome}
+          <div>
+            <h1 className="text-4xl font-bold">
+              SymptomAI
+            </h1>
+
+            <p className="text-gray-500">
+              Right care. Right place. Right now.
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-gray-50 rounded-2xl p-6 shadow-sm space-y-4">
+
+          <h2 className="text-2xl font-semibold">
+            Patient Details
+          </h2>
+
+          <input
+            className="w-full border rounded-xl p-3"
+            placeholder="Full name"
+            value={form.name}
+            onChange={(e) =>
+              setForm({ ...form, name: e.target.value })
+            }
+          />
+
+          <input
+            type="date"
+            className="w-full border rounded-xl p-3"
+            value={form.dob}
+            onChange={(e) =>
+              setForm({ ...form, dob: e.target.value })
+            }
+          />
+
+          <select
+            className="w-full border rounded-xl p-3"
+            value={form.gender}
+            onChange={(e) =>
+              setForm({ ...form, gender: e.target.value })
+            }
+          >
+            <option value="">Select gender</option>
+            <option value="Male">Male</option>
+            <option value="Female">Female</option>
+          </select>
+
+          {form.gender === "Female" && (
+            <select
+              className="w-full border rounded-xl p-3"
+              value={form.pregnant}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  pregnant: e.target.value,
+                })
+              }
+            >
+              <option value="No">Pregnant: No</option>
+              <option value="Yes">Pregnant: Yes</option>
+            </select>
+          )}
+
+          <select
+            className="w-full border rounded-xl p-3"
+            value={form.country}
+            onChange={(e) =>
+              handleCountryChange(e.target.value)
+            }
+          >
+            <option>South Africa</option>
+            <option>England</option>
+            <option>Wales</option>
+            <option>Scotland</option>
+          </select>
+
+          <div className="flex gap-2">
+            <input
+              className="w-24 border rounded-xl p-3 bg-gray-100"
+              value={form.dialCode}
+              readOnly
+            />
+
+            <input
+              className="flex-1 border rounded-xl p-3"
+              placeholder="Phone number"
+              value={form.phone}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  phone: e.target.value,
+                })
+              }
+            />
+          </div>
+
+          <input
+            className="w-full border rounded-xl p-3"
+            placeholder="Location"
+            value={form.location}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                location: e.target.value,
+              })
+            }
+          />
+
+          <textarea
+            className="w-full border rounded-xl p-3"
+            rows={4}
+            placeholder="Describe symptoms"
+            value={form.symptoms}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                symptoms: e.target.value,
+              })
+            }
+          />
+
+          <div className="space-y-3 pt-4">
+
+            <label className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                checked={form.fever}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    fever: e.target.checked,
+                  })
+                }
+              />
+              Fever
+            </label>
+
+            <label className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                checked={form.chestPain}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    chestPain: e.target.checked,
+                  })
+                }
+              />
+              Chest pain
+            </label>
+
+            <label className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                checked={form.breathing}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    breathing: e.target.checked,
+                  })
+                }
+              />
+              Difficulty breathing
+            </label>
+
+            <label className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                checked={form.bleeding}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    bleeding: e.target.checked,
+                  })
+                }
+              />
+              Severe bleeding
+            </label>
+          </div>
+
+          <button
+            onClick={handleSubmit}
+            disabled={loading}
+            className="w-full bg-black text-white rounded-xl p-4 font-semibold mt-4"
+          >
+            {loading ? "Processing..." : "Run SymptomAI Triage"}
+          </button>
+        </div>
+
+        {result && (
+          <div className="mt-8 bg-white border rounded-2xl p-6 shadow-sm">
+            <h2 className="text-3xl font-bold mb-2">
+              {result}
             </h2>
 
-            {outcome === "Emergency referral" && (
-              <a
-                href={getEmergencyWhatsapp()}
-                target="_blank"
-                className="inline-block bg-red-600 text-white px-6 py-3 rounded-xl mt-4"
-              >
-                Contact Emergency Services
-              </a>
-            )}
-
-            <button
-              onClick={() => setOutcome(null)}
-              className="ml-4 bg-gray-200 px-6 py-3 rounded-xl"
-            >
-              New Triage
-            </button>
+            <p className="text-gray-600">
+              Clinical guidance generated using
+              pharmacy-first triage principles.
+            </p>
           </div>
         )}
+
+        <div className="mt-8 text-sm text-gray-400">
+          Admin view: /admin
+        </div>
+
       </div>
     </main>
   );
