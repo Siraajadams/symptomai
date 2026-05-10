@@ -1,4 +1,8 @@
-export type TriageLevel = 'EMERGENCY' | 'DOCTOR_IN_PHARMACY' | 'PHARMACIST_CARE' | 'SELF_CARE';
+export type TriageLevel =
+  | 'EMERGENCY'
+  | 'DOCTOR_IN_PHARMACY'
+  | 'PHARMACIST_CARE'
+  | 'SELF_CARE';
 
 export type TriageInput = {
   age: number;
@@ -20,41 +24,22 @@ export const redFlagQuestions = [
   { id: 'verySickChild', label: 'Child is floppy, blue, not feeding, convulsing, or unusually sleepy' },
 ];
 
-export const doctorTriggers = [
-  'feverMoreThan3Days',
-  'asthmaNotImproving',
-  'urinaryFever',
-  'bloodInUrine',
-  'persistentVomiting',
-  'childConcern',
-  'pregnancyConcern'
-];
-
-export function decideTriage(input: TriageInput): {
-  level: TriageLevel;
-  title: string;
-  recommendation: string;
-  reason: string;
-  reference: string;
-  safetyNet: string;
-} {
-  const emergencyFlags = input.redFlags.filter(Boolean);
-
-  if (emergencyFlags.length > 0) {
+export function decideTriage(input: TriageInput) {
+  if (input.redFlags.length > 0) {
     return {
       level: 'EMERGENCY',
       title: 'Emergency care recommended',
       recommendation: 'Please seek emergency care now. If a doctor is not immediately available, call EMS or a paramedic service.',
-      reason: 'One or more red flags were selected. These symptoms may indicate a serious or life-threatening condition.',
-      reference: 'Based on pharmacy red-flag triage principles aligned to emergency referral criteria: altered consciousness, breathing difficulty, chest pain, seizures, severe pain, bleeding, dehydration, pregnancy danger signs, and very sick child signs.',
-      safetyNet: 'Do not wait for symptoms to improve. Keep the patient seated or lying down and avoid food/drink if very drowsy or vomiting.'
+      reason: 'One or more red flags were selected.',
+      reference: 'Based on pharmacy red-flag triage principles for emergency referral.',
+      safetyNet: 'Do not wait. Seek emergency help immediately.'
     };
   }
 
   const age = Number(input.age || 0);
   const isInfant = age > 0 && age < 1;
-  const longDuration = input.duration === 'more_than_3_days';
   const pregnancy = input.pregnant === 'yes';
+  const longDuration = input.duration === 'more_than_3_days';
 
   if (
     pregnancy ||
@@ -66,9 +51,9 @@ export function decideTriage(input: TriageInput): {
       level: 'DOCTOR_IN_PHARMACY',
       title: 'Doctor in pharmacy recommended',
       recommendation: 'Please book or refer the patient to the doctor in the pharmacy today.',
-      reason: 'The symptoms do not trigger an immediate emergency referral, but they require clinical assessment by a doctor.',
-      reference: 'Based on red-flag triage guidance for pharmacist referral where fever persists, respiratory symptoms do not improve, urinary symptoms include systemic features, pregnancy concerns exist, or children require clinical review.',
-      safetyNet: 'If breathing difficulty, chest pain, confusion, severe pain, bleeding, persistent vomiting, or sudden deterioration develops, seek emergency care immediately.'
+      reason: 'The symptoms require clinical assessment by a doctor.',
+      reference: 'Based on pharmacist referral triage guidance.',
+      safetyNet: 'If symptoms worsen, seek emergency care.'
     };
   }
 
@@ -76,19 +61,19 @@ export function decideTriage(input: TriageInput): {
     return {
       level: 'PHARMACIST_CARE',
       title: 'Pharmacist care recommended',
-      recommendation: 'The pharmacist can assess and recommend OTC treatment, counselling, and monitoring.',
-      reason: 'No emergency red flags were selected and the symptoms appear suitable for pharmacy assessment.',
-      reference: 'Based on pharmacy triage principles where mild, stable symptoms without red flags may be managed with pharmacist assessment and OTC care.',
-      safetyNet: 'Return or book a doctor if symptoms worsen, persist beyond 3 days, fever develops, pain becomes severe, or the patient becomes very unwell.'
+      recommendation: 'The pharmacist can assess and recommend OTC treatment and counselling.',
+      reason: 'No emergency red flags were selected.',
+      reference: 'Based on pharmacy triage principles for mild stable symptoms.',
+      safetyNet: 'Return or book a doctor if symptoms worsen or persist.'
     };
   }
 
   return {
     level: 'SELF_CARE',
     title: 'Self-care and monitoring',
-    recommendation: 'Monitor symptoms, use supportive care, and speak to the pharmacist if unsure.',
+    recommendation: 'Monitor symptoms and speak to the pharmacist if unsure.',
     reason: 'No red flags or doctor referral triggers were identified.',
-    reference: 'Based on safety-net triage principles for stable patients without red flags.',
-    safetyNet: 'Seek pharmacist, doctor, or emergency care if symptoms worsen or new red flags appear.'
+    reference: 'Based on safety-net triage principles.',
+    safetyNet: 'Seek care if symptoms worsen.'
   };
 }
