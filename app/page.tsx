@@ -1,487 +1,247 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { decideTriage, redFlagQuestions } from './lib/triageRules';
+import { useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 
-type FormState = {
-  name: string;
-  dob: string;
-  gender: string;
-  country: string;
-  dialCode: string;
-  phone: string;
-  email: string;
-  location: string;
-  age: string;
-  pregnant: string;
-  symptom: string;
-  duration: string;
-  redFlags: string[];
-  notes: string;
-};
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
-const countryDialCodes: Record<string, string> = {
-  England: '+44',
-  Wales: '+44',
-  Scotland: '+44',
-  'South Africa': '+27',
-};
+type Outcome =
+  | "Emergency referral"
+  | "Doctor in pharmacy"
+  | "Pharmacist care recommended";
 
-const emergencyContacts: Record<string, string> = {
-  'South Africa': '27823111111',
-  England: '44111',
-  Wales: '44111',
-  Scotland: '44111',
-};
+export default function HomePage() {
+  const [loading, setLoading] = useState(false);
 
-const initialForm: FormState = {
-  name: '',
-  dob: '',
-  gender: '',
-  country: 'South Africa',
-  dialCode: '+27',
-  phone: '',
-  email: '',
-  location: '',
-  age: '',
-  pregnant: 'no',
-  symptom: '',
-  duration: 'less_than_3_days',
-  redFlags: [],
-  notes: '',
-};
+  const [form, setForm] = useState({
+    name: "",
+    dob: "",
+    gender: "",
+    pregnant: "",
+    country: "South Africa",
+    dialCode: "+27",
+    phone: "",
+    location: "",
+    symptoms: "",
+  });
 
-function calculateAge(dob: string) {
-  if (!dob) return '';
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
 
-  const birthDate = new Date(dob);
-  const today = new Date();
+  const countryCodes: Record<string, string> = {
+    "South Africa": "+27",
+    England: "+44",
+    Scotland: "+44",
+    Wales: "+44",
+  };
 
-  let age = today.getFullYear() - birthDate.getFullYear();
-  const monthDiff = today.getMonth() - birthDate.getMonth();
-
-  if (
-    monthDiff < 0 ||
-    (monthDiff === 0 && today.getDate() < birthDate.getDate())
-  ) {
-    age--;
-  }
-
-  return age >= 0 ? String(age) : '';
-}
-
-export default function Home() {
-  const [form, setForm] = useState<FormState>(initialForm);
-  const [result, setResult] = useState<any>(null);
-
-  function update(key: keyof FormState, value: any) {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  }
-
-  function updateCountry(country: string) {
-    setForm((prev) => ({
-      ...prev,
+  const handleCountryChange = (country: string) => {
+    setForm({
+      ...form,
       country,
-      dialCode: countryDialCodes[country] || '',
-    }));
-  }
-
-  function updateDob(dob: string) {
-    setForm((prev) => ({
-      ...prev,
-      dob,
-      age: calculateAge(dob),
-    }));
-  }
-
-  function updateGender(gender: string) {
-    setForm((prev) => ({
-      ...prev,
-      gender,
-      pregnant: gender === 'female' ? prev.pregnant : 'no',
-    }));
-  }
-
-  function toggleFlag(id: string) {
-    setForm((prev) => ({
-      ...prev,
-      redFlags: prev.redFlags.includes(id)
-        ? prev.redFlags.filter((x) => x !== id)
-        : [...prev.redFlags, id],
-    }));
-  }
-
-  function submitTriage() {
-    const decision = decideTriage({
-      age: Number(form.age || 0),
-      pregnant: form.gender === 'female' ? form.pregnant : 'no',
-      symptom: form.symptom,
-      duration: form.duration,
-      redFlags: form.redFlags,
+      dialCode: countryCodes[country],
     });
+  };
 
-    const record = {
-      id: Date.now(),
-      createdAt: new Date().toISOString(),
-      form,
-      decision,
-    };
+  const determineOutcome = (): Outcome => {
+    const s = form.symptoms.toLowerCase();
 
-    const existing = JSON.parse(
-      localStorage.getItem('symptomai_triages') || '[]'
-    );
+    if (
+      s.includes("chest pain") ||
+      s.includes("stroke") ||
+      s.includes("shortness of breath") ||
+      s.includes("bleeding")
+    ) {
+      return "Emergency referral";
+    }
 
-    localStorage.setItem(
-      'symptomai_triages',
-      JSON.stringify([record, ...existing])
-    );
+    if (
+      s.includes("infection") ||
+      s.includes("fever") ||
+      s.includes("uti")
+    ) {
+      return "Doctor in pharmacy";
+    }
 
-    setResult(decision);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
+    return "Pharmacist care recommended";
+  };
 
-  const carelinkUrl = 'https://cpnbs.carelink.digital/home';
+  const getEmergencyWhatsapp = () => {
+    switch (form.country) {
+      case "South Africa":
+        return "https://wa.me/27820022000";
+      case "England":
+      case "Scotland":
+      case "Wales":
+        return "https://www.nhs.uk/nhs-services/urgent-and-emergency-care-services/";
+      default:
+        return "#";
+    }
+  };
 
-  const patientPhone = `${form.dialCode}${form.phone}`;
+  const submitTriage = async () => {
+    setLoading(true);
 
-  const standardWhatsappText = encodeURIComponent(
-    `SymptomAI referral request for ${form.name}. Outcome: ${result?.title}. Phone: ${patientPhone}. Country: ${form.country}. Location: ${form.location}.`
-  );
+    const result = determineOutcome();
+    setOutcome(result);
 
-  const emergencyWhatsappText = encodeURIComponent(
-    `EMERGENCY TRIAGE ALERT
+    await supabase.from("triage_records").insert([
+      {
+        name: form.name,
+        dob: form.dob,
+        gender: form.gender,
+        pregnant: form.pregnant,
+        country: form.country,
+        dial_code: form.dialCode,
+        phone: form.phone,
+        location: form.location,
+        symptoms: form.symptoms,
+        outcome: result,
+      },
+    ]);
 
-Patient: ${form.name}
-Phone: ${patientPhone}
-Country: ${form.country}
-Location: ${form.location}
-Outcome: ${result?.title}
-
-SymptomAI identified emergency referral criteria. Please contact or assist the patient urgently.
-
-If immediate danger is present, the patient should call local emergency services immediately.`
-  );
-
-  const standardWhatsappUrl = `https://wa.me/?text=${standardWhatsappText}`;
-
-  const emergencyWhatsappUrl = `https://wa.me/${
-    emergencyContacts[form.country]
-  }?text=${emergencyWhatsappText}`;
+    setLoading(false);
+  };
 
   return (
-    <main className="container">
-      <div className="logo">
-        <div className="logoMark" />
-        <div>
-          SymptomAI
-          <div className="small">Right care. Right place. Right now.</div>
-        </div>
-      </div>
+    <main className="min-h-screen bg-gray-50 p-6">
+      <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow-lg p-8">
+        <h1 className="text-4xl font-bold mb-2">SymptomAI</h1>
+        <p className="text-gray-500 mb-8">
+          Right care. Right place. Right now.
+        </p>
 
-      {result ? (
-        <div className={`card result ${result.level}`} style={{ marginTop: 24 }}>
-          <span className="badge">{result.level.replaceAll('_', ' ')}</span>
+        {!outcome && (
+          <div className="space-y-4">
+            <input
+              className="w-full border p-3 rounded-xl"
+              placeholder="Full Name"
+              value={form.name}
+              onChange={(e) =>
+                setForm({ ...form, name: e.target.value })
+              }
+            />
 
-          <h1>{result.title}</h1>
-          <h2>{result.recommendation}</h2>
+            <input
+              type="date"
+              className="w-full border p-3 rounded-xl"
+              value={form.dob}
+              onChange={(e) =>
+                setForm({ ...form, dob: e.target.value })
+              }
+            />
 
-          <p>
-            <b>Why:</b> {result.reason}
-          </p>
+            <select
+              className="w-full border p-3 rounded-xl"
+              value={form.gender}
+              onChange={(e) =>
+                setForm({ ...form, gender: e.target.value })
+              }
+            >
+              <option value="">Select Gender</option>
+              <option>Male</option>
+              <option>Female</option>
+            </select>
 
-          <p>
-            <b>Clinical reference:</b> {result.reference}
-          </p>
-
-          <p>
-            <b>Safety-net advice:</b> {result.safetyNet}
-          </p>
-
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 20 }}>
-            {result.level === 'EMERGENCY' && (
-              <>
-                <a className="button danger" href="tel:112">
-                  Call emergency services
-                </a>
-
-                <a
-                  className="button danger"
-                  href={emergencyWhatsappUrl}
-                  target="_blank"
-                >
-                  Contact emergency support
-                </a>
-              </>
-            )}
-
-            {result.level === 'DOCTOR_IN_PHARMACY' && (
-              <>
-                <a className="button" href={carelinkUrl} target="_blank">
-                  Book doctor via Carelink
-                </a>
-
-                <a
-                  className="button secondary"
-                  href={standardWhatsappUrl}
-                  target="_blank"
-                >
-                  WhatsApp referral note
-                </a>
-              </>
-            )}
-
-            {(result.level === 'PHARMACIST_CARE' ||
-              result.level === 'SELF_CARE') && (
-              <a
-                className="button secondary"
-                href={standardWhatsappUrl}
-                target="_blank"
+            {form.gender === "Female" && (
+              <select
+                className="w-full border p-3 rounded-xl"
+                value={form.pregnant}
+                onChange={(e) =>
+                  setForm({ ...form, pregnant: e.target.value })
+                }
               >
-                Send advice / follow-up note
+                <option value="">Pregnant?</option>
+                <option>No</option>
+                <option>Yes</option>
+              </select>
+            )}
+
+            <select
+              className="w-full border p-3 rounded-xl"
+              value={form.country}
+              onChange={(e) =>
+                handleCountryChange(e.target.value)
+              }
+            >
+              <option>South Africa</option>
+              <option>England</option>
+              <option>Scotland</option>
+              <option>Wales</option>
+            </select>
+
+            <div className="flex gap-2">
+              <input
+                className="w-24 border p-3 rounded-xl bg-gray-100"
+                value={form.dialCode}
+                readOnly
+              />
+
+              <input
+                className="flex-1 border p-3 rounded-xl"
+                placeholder="Phone Number"
+                value={form.phone}
+                onChange={(e) =>
+                  setForm({ ...form, phone: e.target.value })
+                }
+              />
+            </div>
+
+            <input
+              className="w-full border p-3 rounded-xl"
+              placeholder="Location"
+              value={form.location}
+              onChange={(e) =>
+                setForm({ ...form, location: e.target.value })
+              }
+            />
+
+            <textarea
+              className="w-full border p-3 rounded-xl h-32"
+              placeholder="Describe symptoms"
+              value={form.symptoms}
+              onChange={(e) =>
+                setForm({ ...form, symptoms: e.target.value })
+              }
+            />
+
+            <button
+              onClick={submitTriage}
+              disabled={loading}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-xl font-bold"
+            >
+              {loading ? "Submitting..." : "Run Triage"}
+            </button>
+          </div>
+        )}
+
+        {outcome && (
+          <div className="border-l-4 border-yellow-500 bg-yellow-50 p-6 rounded-xl">
+            <h2 className="text-3xl font-bold mb-4">
+              {outcome}
+            </h2>
+
+            {outcome === "Emergency referral" && (
+              <a
+                href={getEmergencyWhatsapp()}
+                target="_blank"
+                className="inline-block bg-red-600 text-white px-6 py-3 rounded-xl mt-4"
+              >
+                Contact Emergency Services
               </a>
             )}
 
             <button
-              className="button"
-              onClick={() => {
-                setResult(null);
-                setForm(initialForm);
-              }}
+              onClick={() => setOutcome(null)}
+              className="ml-4 bg-gray-200 px-6 py-3 rounded-xl"
             >
-              New triage
+              New Triage
             </button>
           </div>
-        </div>
-      ) : (
-        <section className="hero">
-          <div className="card">
-            <h1>60-second pharmacy triage</h1>
-
-            <p>
-              Capture basic details, screen red flags, and route patients to
-              emergency care, doctor in pharmacy, pharmacist care, or self-care.
-            </p>
-
-            <a className="button" href="#triage">
-              Start triage
-            </a>
-          </div>
-
-          <div className="card">
-            <h2>Built for pharmacies</h2>
-
-            <p>
-              Safe red-flag triage, referral support, and basic analytics.
-            </p>
-          </div>
-        </section>
-      )}
-
-      {!result && (
-        <div id="triage" className="card" style={{ marginTop: 24 }}>
-          <h2>Patient details</h2>
-
-          <div className="grid">
-            <label>
-              Name
-              <input
-                className="input"
-                value={form.name}
-                onChange={(e) => update('name', e.target.value)}
-                placeholder="Patient name"
-              />
-            </label>
-
-            <label>
-              Date of birth
-              <input
-                className="input"
-                type="date"
-                value={form.dob}
-                onChange={(e) => updateDob(e.target.value)}
-              />
-            </label>
-
-            <label>
-              Age
-              <input
-                className="input"
-                type="number"
-                value={form.age}
-                onChange={(e) => update('age', e.target.value)}
-                placeholder="Auto-calculated from DOB"
-              />
-            </label>
-
-            <label>
-              Gender
-              <select
-                value={form.gender}
-                onChange={(e) => updateGender(e.target.value)}
-              >
-                <option value="">Select gender</option>
-                <option value="female">Female</option>
-                <option value="male">Male</option>
-                <option value="other">Other / prefer not to say</option>
-              </select>
-            </label>
-
-            {form.gender === 'female' && (
-              <label>
-                Pregnant?
-                <select
-                  value={form.pregnant}
-                  onChange={(e) => update('pregnant', e.target.value)}
-                >
-                  <option value="no">No</option>
-                  <option value="yes">Yes</option>
-                  <option value="unsure">Unsure</option>
-                </select>
-              </label>
-            )}
-
-            <label>
-              Country
-              <select
-                value={form.country}
-                onChange={(e) => updateCountry(e.target.value)}
-              >
-                <option value="South Africa">South Africa</option>
-                <option value="England">England</option>
-                <option value="Wales">Wales</option>
-                <option value="Scotland">Scotland</option>
-              </select>
-            </label>
-
-            <label>
-              Mobile / WhatsApp
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input
-                  className="input"
-                  value={form.dialCode}
-                  readOnly
-                  style={{ maxWidth: 90 }}
-                />
-
-                <input
-                  className="input"
-                  value={form.phone}
-                  onChange={(e) => update('phone', e.target.value)}
-                  placeholder="Mobile number"
-                />
-              </div>
-            </label>
-
-            <label>
-              Email
-              <input
-                className="input"
-                value={form.email}
-                onChange={(e) => update('email', e.target.value)}
-                placeholder="Optional"
-              />
-            </label>
-
-            <label>
-              Nearest pharmacy / location
-              <input
-                className="input"
-                value={form.location}
-                onChange={(e) => update('location', e.target.value)}
-                placeholder="Pharmacy or suburb"
-              />
-            </label>
-          </div>
-
-          <h2>Main symptom</h2>
-
-          <div className="grid">
-            <label>
-              Symptom category
-              <select
-                value={form.symptom}
-                onChange={(e) => update('symptom', e.target.value)}
-              >
-                <option value="">Select symptom</option>
-                <option value="cold">Cold / flu symptoms</option>
-                <option value="cough">Cough</option>
-                <option value="breathing">Breathing / asthma</option>
-                <option value="chest">Chest pain / palpitations</option>
-                <option value="abdominal">
-                  Stomach pain / vomiting / diarrhoea
-                </option>
-                <option value="urinary">Urinary symptoms</option>
-                <option value="pain">Pain / headache</option>
-                <option value="skin">Skin / rash</option>
-                <option value="allergy">Allergy</option>
-                <option value="injury">Injury / wound / burn</option>
-                <option value="pregnancy">Pregnancy concern</option>
-                <option value="child">Child illness</option>
-                <option value="minor">Other minor symptom</option>
-              </select>
-            </label>
-
-            <label>
-              Duration
-              <select
-                value={form.duration}
-                onChange={(e) => update('duration', e.target.value)}
-              >
-                <option value="less_than_24_hours">Less than 24 hours</option>
-                <option value="less_than_3_days">Less than 3 days</option>
-                <option value="more_than_3_days">More than 3 days</option>
-                <option value="sudden_or_worsening">Sudden or worsening</option>
-              </select>
-            </label>
-          </div>
-
-          <h2>Red flag check</h2>
-
-          <p>
-            Select any serious symptom present. If unsure, select it and refer
-            upwards.
-          </p>
-
-          {redFlagQuestions.map((q) => (
-            <label className="check" key={q.id}>
-              <input
-                type="checkbox"
-                checked={form.redFlags.includes(q.id)}
-                onChange={() => toggleFlag(q.id)}
-              />
-
-              <span>{q.label}</span>
-            </label>
-          ))}
-
-          <label>
-            Optional notes
-            <textarea
-              value={form.notes}
-              onChange={(e) => update('notes', e.target.value)}
-              placeholder="Short pharmacist note"
-              rows={3}
-            />
-          </label>
-
-          <label className="check">
-            <input type="checkbox" required />
-
-            <span>
-              I understand this tool supports triage and does not replace a
-              clinical diagnosis.
-            </span>
-          </label>
-
-          <button className="button" onClick={submitTriage}>
-            Get triage recommendation
-          </button>
-        </div>
-      )}
-
-      <p className="small" style={{ marginTop: 20 }}>
-        Admin view: <a href="/admin">/admin</a>
-      </p>
+        )}
+      </div>
     </main>
   );
 }
