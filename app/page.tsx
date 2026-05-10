@@ -5,6 +5,10 @@ import { decideTriage, redFlagQuestions } from './lib/triageRules';
 
 type FormState = {
   name: string;
+  dob: string;
+  gender: string;
+  country: string;
+  dialCode: string;
   phone: string;
   email: string;
   location: string;
@@ -16,8 +20,19 @@ type FormState = {
   notes: string;
 };
 
+const countryDialCodes: Record<string, string> = {
+  England: '+44',
+  Wales: '+44',
+  Scotland: '+44',
+  'South Africa': '+27',
+};
+
 const initialForm: FormState = {
   name: '',
+  dob: '',
+  gender: '',
+  country: 'South Africa',
+  dialCode: '+27',
   phone: '',
   email: '',
   location: '',
@@ -29,12 +44,54 @@ const initialForm: FormState = {
   notes: '',
 };
 
+function calculateAge(dob: string) {
+  if (!dob) return '';
+  const birthDate = new Date(dob);
+  const today = new Date();
+
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+
+  if (
+    monthDiff < 0 ||
+    (monthDiff === 0 && today.getDate() < birthDate.getDate())
+  ) {
+    age--;
+  }
+
+  return age >= 0 ? String(age) : '';
+}
+
 export default function Home() {
   const [form, setForm] = useState<FormState>(initialForm);
   const [result, setResult] = useState<any>(null);
 
   function update(key: keyof FormState, value: any) {
     setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function updateCountry(country: string) {
+    setForm((prev) => ({
+      ...prev,
+      country,
+      dialCode: countryDialCodes[country] || '',
+    }));
+  }
+
+  function updateDob(dob: string) {
+    setForm((prev) => ({
+      ...prev,
+      dob,
+      age: calculateAge(dob),
+    }));
+  }
+
+  function updateGender(gender: string) {
+    setForm((prev) => ({
+      ...prev,
+      gender,
+      pregnant: gender === 'female' ? prev.pregnant : 'no',
+    }));
   }
 
   function toggleFlag(id: string) {
@@ -49,7 +106,7 @@ export default function Home() {
   function submitTriage() {
     const decision = decideTriage({
       age: Number(form.age || 0),
-      pregnant: form.pregnant,
+      pregnant: form.gender === 'female' ? form.pregnant : 'no',
       symptom: form.symptom,
       duration: form.duration,
       redFlags: form.redFlags,
@@ -78,7 +135,7 @@ export default function Home() {
   const carelinkUrl = 'https://cpnbs.carelink.digital/home';
 
   const whatsappText = encodeURIComponent(
-    `SymptomAI referral request for ${form.name}. Outcome: ${result?.title}. Phone: ${form.phone}. Location: ${form.location}.`
+    `SymptomAI referral request for ${form.name}. Outcome: ${result?.title}. Phone: ${form.dialCode}${form.phone}. Country: ${form.country}. Location: ${form.location}.`
   );
 
   const whatsappUrl = `https://wa.me/?text=${whatsappText}`;
@@ -98,20 +155,11 @@ export default function Home() {
           <span className="badge">{result.level.replaceAll('_', ' ')}</span>
 
           <h1>{result.title}</h1>
-
           <h2>{result.recommendation}</h2>
 
-          <p>
-            <b>Why:</b> {result.reason}
-          </p>
-
-          <p>
-            <b>Clinical reference:</b> {result.reference}
-          </p>
-
-          <p>
-            <b>Safety-net advice:</b> {result.safetyNet}
-          </p>
+          <p><b>Why:</b> {result.reason}</p>
+          <p><b>Clinical reference:</b> {result.reference}</p>
+          <p><b>Safety-net advice:</b> {result.safetyNet}</p>
 
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 20 }}>
             {result.level === 'EMERGENCY' && (
@@ -119,7 +167,6 @@ export default function Home() {
                 <a className="button danger" href="tel:112">
                   Call emergency services
                 </a>
-
                 <a className="button secondary" href={whatsappUrl}>
                   Request paramedic / admin callback
                 </a>
@@ -131,7 +178,6 @@ export default function Home() {
                 <a className="button" href={carelinkUrl} target="_blank">
                   Book doctor via Carelink
                 </a>
-
                 <a className="button secondary" href={whatsappUrl}>
                   WhatsApp referral note
                 </a>
@@ -160,12 +206,10 @@ export default function Home() {
         <section className="hero">
           <div className="card">
             <h1>60-second pharmacy triage</h1>
-
             <p>
               Capture basic details, screen red flags, and route patients to
               emergency care, doctor in pharmacy, pharmacist care, or self-care.
             </p>
-
             <a className="button" href="#triage">
               Start triage
             </a>
@@ -173,10 +217,8 @@ export default function Home() {
 
           <div className="card">
             <h2>Built for pharmacies</h2>
-
             <p>
-              No diagnosis. No complex EHR. Just safe red-flag triage, referral
-              support, and basic analytics.
+              Safe red-flag triage, referral support, and basic analytics.
             </p>
           </div>
         </section>
@@ -198,13 +240,82 @@ export default function Home() {
             </label>
 
             <label>
-              Mobile / WhatsApp
+              Date of birth
               <input
                 className="input"
-                value={form.phone}
-                onChange={(e) => update('phone', e.target.value)}
-                placeholder="+27..."
+                type="date"
+                value={form.dob}
+                onChange={(e) => updateDob(e.target.value)}
               />
+            </label>
+
+            <label>
+              Age
+              <input
+                className="input"
+                type="number"
+                value={form.age}
+                onChange={(e) => update('age', e.target.value)}
+                placeholder="Auto-calculated from DOB"
+              />
+            </label>
+
+            <label>
+              Gender
+              <select
+                value={form.gender}
+                onChange={(e) => updateGender(e.target.value)}
+              >
+                <option value="">Select gender</option>
+                <option value="female">Female</option>
+                <option value="male">Male</option>
+                <option value="other">Other / prefer not to say</option>
+              </select>
+            </label>
+
+            {form.gender === 'female' && (
+              <label>
+                Pregnant?
+                <select
+                  value={form.pregnant}
+                  onChange={(e) => update('pregnant', e.target.value)}
+                >
+                  <option value="no">No</option>
+                  <option value="yes">Yes</option>
+                  <option value="unsure">Unsure</option>
+                </select>
+              </label>
+            )}
+
+            <label>
+              Country
+              <select
+                value={form.country}
+                onChange={(e) => updateCountry(e.target.value)}
+              >
+                <option value="South Africa">South Africa</option>
+                <option value="England">England</option>
+                <option value="Wales">Wales</option>
+                <option value="Scotland">Scotland</option>
+              </select>
+            </label>
+
+            <label>
+              Mobile / WhatsApp
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  className="input"
+                  value={form.dialCode}
+                  readOnly
+                  style={{ maxWidth: 90 }}
+                />
+                <input
+                  className="input"
+                  value={form.phone}
+                  onChange={(e) => update('phone', e.target.value)}
+                  placeholder="Mobile number"
+                />
+              </div>
             </label>
 
             <label>
@@ -226,29 +337,6 @@ export default function Home() {
                 placeholder="Pharmacy or suburb"
               />
             </label>
-
-            <label>
-              Age
-              <input
-                className="input"
-                type="number"
-                value={form.age}
-                onChange={(e) => update('age', e.target.value)}
-                placeholder="Age in years"
-              />
-            </label>
-
-            <label>
-              Pregnant?
-              <select
-                value={form.pregnant}
-                onChange={(e) => update('pregnant', e.target.value)}
-              >
-                <option value="no">No / not applicable</option>
-                <option value="yes">Yes</option>
-                <option value="unsure">Unsure</option>
-              </select>
-            </label>
           </div>
 
           <h2>Main symptom</h2>
@@ -265,9 +353,7 @@ export default function Home() {
                 <option value="cough">Cough</option>
                 <option value="breathing">Breathing / asthma</option>
                 <option value="chest">Chest pain / palpitations</option>
-                <option value="abdominal">
-                  Stomach pain / vomiting / diarrhoea
-                </option>
+                <option value="abdominal">Stomach pain / vomiting / diarrhoea</option>
                 <option value="urinary">Urinary symptoms</option>
                 <option value="pain">Pain / headache</option>
                 <option value="skin">Skin / rash</option>
@@ -296,8 +382,7 @@ export default function Home() {
           <h2>Red flag check</h2>
 
           <p>
-            Select any serious symptom present. If unsure, select it and refer
-            upwards.
+            Select any serious symptom present. If unsure, select it and refer upwards.
           </p>
 
           {redFlagQuestions.map((q) => (
@@ -324,8 +409,7 @@ export default function Home() {
           <label className="check">
             <input type="checkbox" required />
             <span>
-              I understand this tool supports triage and does not replace a
-              clinical diagnosis.
+              I understand this tool supports triage and does not replace a clinical diagnosis.
             </span>
           </label>
 
