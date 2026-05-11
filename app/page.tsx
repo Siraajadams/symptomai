@@ -3,38 +3,13 @@
 import { useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 
-function getSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!url || !key) {
-    console.error("Missing Supabase environment variables");
-    return null;
-  }
-
-  return createClient(url, key);
-}
-
-type FormState = {
-  name: string;
-  dob: string;
-  gender: string;
-  pregnant: string;
-  country: string;
-  dialCode: string;
-  phone: string;
-  location: string;
-  symptoms: string;
-  fever: boolean;
-  chestPain: boolean;
-  breathing: boolean;
-  bleeding: boolean;
-};
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export default function Home() {
-  const [loading, setLoading] = useState(false);
-
-  const [form, setForm] = useState<FormState>({
+  const [form, setForm] = useState({
     name: "",
     dob: "",
     gender: "",
@@ -50,150 +25,163 @@ export default function Home() {
     bleeding: false,
   });
 
-  const [result, setResult] = useState("");
+  const [outcome, setOutcome] = useState("");
+  const [submitted, setSubmitted] = useState(false);
 
-  const handleCountryChange = (country: string) => {
-    let dialCode = "+27";
+  const updateCountry = (country: string) => {
+    let code = "+27";
 
-    if (country === "England") dialCode = "+44";
-    if (country === "Wales") dialCode = "+44";
-    if (country === "Scotland") dialCode = "+44";
-    if (country === "South Africa") dialCode = "+27";
+    if (country === "England") code = "+44";
+    if (country === "Wales") code = "+44";
+    if (country === "Scotland") code = "+44";
+    if (country === "South Africa") code = "+27";
 
     setForm({
       ...form,
       country,
-      dialCode,
+      dialCode: code,
     });
   };
 
   const handleSubmit = async () => {
-    setLoading(true);
+    let triageOutcome = "Pharmacist care recommended";
 
-    let outcome = "Pharmacist care recommended";
-
-    const emergency =
+    if (
       form.chestPain ||
       form.breathing ||
-      form.bleeding;
-
-    if (emergency) {
-      outcome = "Emergency referral required";
+      form.bleeding
+    ) {
+      triageOutcome = "Emergency referral recommended";
     }
 
-    setResult(outcome);
-
-    const supabase = getSupabase();
-
-    if (!supabase) {
-      alert(
-        "Supabase not configured correctly in Vercel environment variables."
-      );
-      setLoading(false);
-      return;
-    }
+    setOutcome(triageOutcome);
+    setSubmitted(true);
 
     try {
-      await supabase.from("triage_records").insert([
-        {
-          name: form.name,
-          dob: form.dob,
-          gender: form.gender,
-          pregnant: form.pregnant,
-          country: form.country,
-          dial_code: form.dialCode,
-          phone: form.phone,
-          location: form.location,
-          symptoms: form.symptoms,
-          fever: form.fever,
-          chest_pain: form.chestPain,
-          breathing: form.breathing,
-          bleeding: form.bleeding,
-          outcome,
-        },
-      ]);
-    } catch (error) {
+      const { data, error } = await supabase
+        .from("triage_records")
+        .insert([
+          {
+            name: form.name,
+            dob: form.dob,
+            gender: form.gender,
+            pregnant: form.pregnant,
+            country: form.country,
+            dial_code: form.dialCode,
+            phone: form.phone,
+            location: form.location,
+            symptoms: form.symptoms,
+            fever: form.fever,
+            chest_pain: form.chestPain,
+            breathing: form.breathing,
+            bleeding: form.bleeding,
+            outcome: triageOutcome,
+          },
+        ])
+        .select();
+
+      if (error) {
+        alert("Supabase error: " + error.message);
+        console.error(error);
+      } else {
+        console.log("Saved:", data);
+        alert("Triage saved successfully");
+      }
+    } catch (error: any) {
+      alert("Unexpected error: " + error.message);
       console.error(error);
     }
 
-    if (outcome === "Emergency referral required") {
-      let emergencyNumber = "082911";
+    let emergencyNumber = "";
 
-      if (form.country === "England") {
-        emergencyNumber = "999";
-      }
-
-      if (form.country === "Wales") {
-        emergencyNumber = "999";
-      }
-
-      if (form.country === "Scotland") {
-        emergencyNumber = "999";
-      }
-
-      const whatsappMessage = encodeURIComponent(
-        `SymptomAI Emergency Referral\n\nPatient: ${form.name}\nCountry: ${form.country}\nLocation: ${form.location}\nSymptoms: ${form.symptoms}\n\nOutcome: Emergency referral required`
-      );
-
-      window.open(
-        `https://wa.me/${emergencyNumber}?text=${whatsappMessage}`,
-        "_blank"
-      );
+    if (form.country === "South Africa") {
+      emergencyNumber = "27823148000";
+    } else {
+      emergencyNumber = "447860039092";
     }
 
-    setLoading(false);
+    const whatsappMessage = `SymptomAI referral request for ${form.name}. Outcome: ${triageOutcome}. Phone: ${form.dialCode}${form.phone}. Country: ${form.country}. Location: ${form.location}.`;
+
+    const whatsappUrl = `https://wa.me/${emergencyNumber}?text=${encodeURIComponent(
+      whatsappMessage
+    )}`;
+
+    window.open(whatsappUrl, "_blank");
   };
 
-  return (
-    <main className="min-h-screen bg-white p-6">
-      <div className="max-w-2xl mx-auto">
+  if (submitted) {
+    return (
+      <main className="min-h-screen bg-gray-50 p-6">
+        <div className="max-w-3xl mx-auto bg-white rounded-3xl shadow-xl p-8">
+          <h1 className="text-5xl font-bold mb-6 text-gray-900">
+            SymptomAI
+          </h1>
 
-        <div className="flex items-center gap-3 mb-8">
-          <div className="w-12 h-12 rounded-xl bg-black text-white flex items-center justify-center text-2xl">
-            +
-          </div>
+          <div className="border-l-4 border-yellow-500 pl-6">
+            <p className="text-sm font-bold uppercase text-gray-500">
+              TRIAGE OUTCOME
+            </p>
 
-          <div>
-            <h1 className="text-4xl font-bold">
-              SymptomAI
-            </h1>
+            <h2 className="text-4xl font-bold mt-2 mb-4">
+              {outcome}
+            </h2>
 
-            <p className="text-gray-500">
-              Right care. Right place. Right now.
+            <p className="text-gray-600 text-lg">
+              Thank you. Your assessment has been completed.
             </p>
           </div>
+
+          <button
+            onClick={() => {
+              setSubmitted(false);
+              setOutcome("");
+            }}
+            className="mt-8 bg-black text-white px-6 py-3 rounded-2xl"
+          >
+            New triage
+          </button>
         </div>
+      </main>
+    );
+  }
 
-        <div className="bg-gray-50 rounded-2xl p-6 shadow-sm space-y-4">
+  return (
+    <main className="min-h-screen bg-gray-50 p-6">
+      <div className="max-w-3xl mx-auto bg-white rounded-3xl shadow-xl p-8">
+        <h1 className="text-5xl font-bold mb-2 text-gray-900">
+          SymptomAI
+        </h1>
 
-          <h2 className="text-2xl font-semibold">
-            Patient Details
-          </h2>
+        <p className="text-gray-500 mb-8 text-lg">
+          Right care. Right place. Right now.
+        </p>
 
+        <div className="space-y-5">
           <input
-            className="w-full border rounded-xl p-3"
+            type="text"
             placeholder="Full name"
             value={form.name}
             onChange={(e) =>
               setForm({ ...form, name: e.target.value })
             }
+            className="w-full border p-4 rounded-2xl"
           />
 
           <input
             type="date"
-            className="w-full border rounded-xl p-3"
             value={form.dob}
             onChange={(e) =>
               setForm({ ...form, dob: e.target.value })
             }
+            className="w-full border p-4 rounded-2xl"
           />
 
           <select
-            className="w-full border rounded-xl p-3"
             value={form.gender}
             onChange={(e) =>
               setForm({ ...form, gender: e.target.value })
             }
+            className="w-full border p-4 rounded-2xl"
           >
             <option value="">Select gender</option>
             <option value="Male">Male</option>
@@ -202,7 +190,6 @@ export default function Home() {
 
           {form.gender === "Female" && (
             <select
-              className="w-full border rounded-xl p-3"
               value={form.pregnant}
               onChange={(e) =>
                 setForm({
@@ -210,6 +197,7 @@ export default function Home() {
                   pregnant: e.target.value,
                 })
               }
+              className="w-full border p-4 rounded-2xl"
             >
               <option value="No">Pregnant: No</option>
               <option value="Yes">Pregnant: Yes</option>
@@ -217,11 +205,9 @@ export default function Home() {
           )}
 
           <select
-            className="w-full border rounded-xl p-3"
             value={form.country}
-            onChange={(e) =>
-              handleCountryChange(e.target.value)
-            }
+            onChange={(e) => updateCountry(e.target.value)}
+            className="w-full border p-4 rounded-2xl"
           >
             <option>South Africa</option>
             <option>England</option>
@@ -229,15 +215,16 @@ export default function Home() {
             <option>Scotland</option>
           </select>
 
-          <div className="flex gap-2">
+          <div className="flex gap-3">
             <input
-              className="w-24 border rounded-xl p-3 bg-gray-100"
+              type="text"
               value={form.dialCode}
               readOnly
+              className="w-24 border p-4 rounded-2xl bg-gray-100"
             />
 
             <input
-              className="flex-1 border rounded-xl p-3"
+              type="text"
               placeholder="Phone number"
               value={form.phone}
               onChange={(e) =>
@@ -246,11 +233,12 @@ export default function Home() {
                   phone: e.target.value,
                 })
               }
+              className="flex-1 border p-4 rounded-2xl"
             />
           </div>
 
           <input
-            className="w-full border rounded-xl p-3"
+            type="text"
             placeholder="Location"
             value={form.location}
             onChange={(e) =>
@@ -259,11 +247,10 @@ export default function Home() {
                 location: e.target.value,
               })
             }
+            className="w-full border p-4 rounded-2xl"
           />
 
           <textarea
-            className="w-full border rounded-xl p-3"
-            rows={4}
             placeholder="Describe symptoms"
             value={form.symptoms}
             onChange={(e) =>
@@ -272,10 +259,10 @@ export default function Home() {
                 symptoms: e.target.value,
               })
             }
+            className="w-full border p-4 rounded-2xl h-32"
           />
 
-          <div className="space-y-3 pt-4">
-
+          <div className="space-y-3">
             <label className="flex items-center gap-3">
               <input
                 type="checkbox"
@@ -335,30 +322,11 @@ export default function Home() {
 
           <button
             onClick={handleSubmit}
-            disabled={loading}
-            className="w-full bg-black text-white rounded-xl p-4 font-semibold mt-4"
+            className="w-full bg-black text-white py-4 rounded-2xl text-lg font-bold"
           >
-            {loading ? "Processing..." : "Run SymptomAI Triage"}
+            Submit assessment
           </button>
         </div>
-
-        {result && (
-          <div className="mt-8 bg-white border rounded-2xl p-6 shadow-sm">
-            <h2 className="text-3xl font-bold mb-2">
-              {result}
-            </h2>
-
-            <p className="text-gray-600">
-              Clinical guidance generated using
-              pharmacy-first triage principles.
-            </p>
-          </div>
-        )}
-
-        <div className="mt-8 text-sm text-gray-400">
-          Admin view: /admin
-        </div>
-
       </div>
     </main>
   );
