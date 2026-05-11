@@ -1,333 +1,386 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { useState } from 'react';
+import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+function getSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !key) return null;
+  return createClient(url, key);
+}
 
 export default function Home() {
   const [form, setForm] = useState({
-    name: "",
-    dob: "",
-    gender: "",
-    pregnant: "No",
-    country: "South Africa",
-    dialCode: "+27",
-    phone: "",
-    location: "",
-    symptoms: "",
+    name: '',
+    dob: '',
+    gender: '',
+    pregnant: 'No',
+    country: 'South Africa',
+    dialCode: '+27',
+    phone: '',
+    location: '',
+    symptoms: '',
     fever: false,
     chestPain: false,
     breathing: false,
     bleeding: false,
   });
 
-  const [outcome, setOutcome] = useState("");
+  const [outcome, setOutcome] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const updateCountry = (country: string) => {
-    let code = "+27";
+  function updateCountry(country: string) {
+    const dialCode = country === 'South Africa' ? '+27' : '+44';
+    setForm({ ...form, country, dialCode });
+  }
 
-    if (country === "England") code = "+44";
-    if (country === "Wales") code = "+44";
-    if (country === "Scotland") code = "+44";
-    if (country === "South Africa") code = "+27";
+  async function handleSubmit() {
+    setSaving(true);
 
-    setForm({
-      ...form,
-      country,
-      dialCode: code,
-    });
-  };
-
-  const handleSubmit = async () => {
-    let triageOutcome = "Pharmacist care recommended";
-
-    if (
-      form.chestPain ||
-      form.breathing ||
-      form.bleeding
-    ) {
-      triageOutcome = "Emergency referral recommended";
-    }
+    const emergency = form.chestPain || form.breathing || form.bleeding;
+    const triageOutcome = emergency
+      ? 'Emergency referral recommended'
+      : form.fever
+      ? 'Doctor in pharmacy recommended'
+      : 'Pharmacist care recommended';
 
     setOutcome(triageOutcome);
     setSubmitted(true);
 
-    try {
-      const { data, error } = await supabase
-        .from("triage_records")
-        .insert([
-          {
-            name: form.name,
-            dob: form.dob,
-            gender: form.gender,
-            pregnant: form.pregnant,
-            country: form.country,
-            dial_code: form.dialCode,
-            phone: form.phone,
-            location: form.location,
-            symptoms: form.symptoms,
-            fever: form.fever,
-            chest_pain: form.chestPain,
-            breathing: form.breathing,
-            bleeding: form.bleeding,
-            outcome: triageOutcome,
-          },
-        ])
-        .select();
+    const supabase = getSupabase();
 
-      if (error) {
-        alert("Supabase error: " + error.message);
-        console.error(error);
-      } else {
-        console.log("Saved:", data);
-        alert("Triage saved successfully");
-      }
-    } catch (error: any) {
-      alert("Unexpected error: " + error.message);
-      console.error(error);
+    if (supabase) {
+      const { error } = await supabase.from('triage_records').insert([
+        {
+          name: form.name,
+          dob: form.dob || null,
+          gender: form.gender,
+          pregnant: form.gender === 'Female' ? form.pregnant : 'No',
+          country: form.country,
+          dial_code: form.dialCode,
+          phone: form.phone,
+          location: form.location,
+          symptoms: form.symptoms,
+          fever: form.fever,
+          chest_pain: form.chestPain,
+          breathing: form.breathing,
+          bleeding: form.bleeding,
+          outcome: triageOutcome,
+        },
+      ]);
+
+      if (error) alert('Supabase error: ' + error.message);
     }
 
-    let emergencyNumber = "";
-
-    if (form.country === "South Africa") {
-      emergencyNumber = "27823148000";
-    } else {
-      emergencyNumber = "447860039092";
-    }
-
-    const whatsappMessage = `SymptomAI referral request for ${form.name}. Outcome: ${triageOutcome}. Phone: ${form.dialCode}${form.phone}. Country: ${form.country}. Location: ${form.location}.`;
-
-    const whatsappUrl = `https://wa.me/${emergencyNumber}?text=${encodeURIComponent(
-      whatsappMessage
-    )}`;
-
-    window.open(whatsappUrl, "_blank");
-  };
-
-  if (submitted) {
-    return (
-      <main className="min-h-screen bg-gray-50 p-6">
-        <div className="max-w-3xl mx-auto bg-white rounded-3xl shadow-xl p-8">
-          <h1 className="text-5xl font-bold mb-6 text-gray-900">
-            SymptomAI
-          </h1>
-
-          <div className="border-l-4 border-yellow-500 pl-6">
-            <p className="text-sm font-bold uppercase text-gray-500">
-              TRIAGE OUTCOME
-            </p>
-
-            <h2 className="text-4xl font-bold mt-2 mb-4">
-              {outcome}
-            </h2>
-
-            <p className="text-gray-600 text-lg">
-              Thank you. Your assessment has been completed.
-            </p>
-          </div>
-
-          <button
-            onClick={() => {
-              setSubmitted(false);
-              setOutcome("");
-            }}
-            className="mt-8 bg-black text-white px-6 py-3 rounded-2xl"
-          >
-            New triage
-          </button>
-        </div>
-      </main>
-    );
+    setSaving(false);
   }
 
+  const whatsappMessage = encodeURIComponent(
+    `SymptomAI referral request for ${form.name}. Outcome: ${outcome}. Phone: ${form.dialCode}${form.phone}. Country: ${form.country}. Location: ${form.location}. Symptoms: ${form.symptoms}`
+  );
+
+  const emergencyNumber =
+    form.country === 'South Africa' ? '27823148000' : '447860039092';
+
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-3xl mx-auto bg-white rounded-3xl shadow-xl p-8">
-        <h1 className="text-5xl font-bold mb-2 text-gray-900">
+    <main className="container">
+      <div className="logo">
+        <div className="logoMark" />
+        <div>
           SymptomAI
-        </h1>
+          <div className="small">Right care. Right place. Right now.</div>
+        </div>
+      </div>
 
-        <p className="text-gray-500 mb-8 text-lg">
-          Right care. Right place. Right now.
-        </p>
+      {submitted ? (
+        <div
+          className={`card result ${
+            outcome.includes('Emergency')
+              ? 'EMERGENCY'
+              : outcome.includes('Doctor')
+              ? 'DOCTOR_IN_PHARMACY'
+              : 'PHARMACIST_CARE'
+          }`}
+          style={{ marginTop: 24 }}
+        >
+          <span className="badge">
+            {outcome.includes('Emergency')
+              ? 'EMERGENCY'
+              : outcome.includes('Doctor')
+              ? 'DOCTOR IN PHARMACY'
+              : 'PHARMACIST CARE'}
+          </span>
 
-        <div className="space-y-5">
-          <input
-            type="text"
-            placeholder="Full name"
-            value={form.name}
-            onChange={(e) =>
-              setForm({ ...form, name: e.target.value })
-            }
-            className="w-full border p-4 rounded-2xl"
-          />
+          <h1>{outcome}</h1>
 
-          <input
-            type="date"
-            value={form.dob}
-            onChange={(e) =>
-              setForm({ ...form, dob: e.target.value })
-            }
-            className="w-full border p-4 rounded-2xl"
-          />
+          <h2>
+            {outcome.includes('Emergency')
+              ? 'The patient should seek urgent emergency care.'
+              : outcome.includes('Doctor')
+              ? 'The patient should be referred to a doctor in the pharmacy.'
+              : 'The pharmacist can assess and recommend OTC treatment and counselling.'}
+          </h2>
 
-          <select
-            value={form.gender}
-            onChange={(e) =>
-              setForm({ ...form, gender: e.target.value })
-            }
-            className="w-full border p-4 rounded-2xl"
-          >
-            <option value="">Select gender</option>
-            <option value="Male">Male</option>
-            <option value="Female">Female</option>
-          </select>
+          <p>
+            <b>Why:</b>{' '}
+            {outcome.includes('Emergency')
+              ? 'One or more red flags were selected.'
+              : outcome.includes('Doctor')
+              ? 'Symptoms may require clinical assessment.'
+              : 'No emergency red flags were selected.'}
+          </p>
 
-          {form.gender === "Female" && (
-            <select
-              value={form.pregnant}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  pregnant: e.target.value,
-                })
-              }
-              className="w-full border p-4 rounded-2xl"
+          <p>
+            <b>Clinical reference:</b> Based on pharmacy red-flag triage
+            principles for safe referral and escalation.
+          </p>
+
+          <p>
+            <b>Safety-net advice:</b> If symptoms worsen, breathing changes,
+            chest pain develops, confusion occurs, or severe pain appears, seek
+            emergency care immediately.
+          </p>
+
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 20 }}>
+            {outcome.includes('Emergency') && (
+              <>
+                <a className="button danger" href="tel:112">
+                  Call emergency services
+                </a>
+
+                <a
+                  className="button danger"
+                  target="_blank"
+                  href={`https://wa.me/${emergencyNumber}?text=${whatsappMessage}`}
+                >
+                  WhatsApp emergency referral
+                </a>
+              </>
+            )}
+
+            {outcome.includes('Doctor') && (
+              <a
+                className="button"
+                target="_blank"
+                href="https://cpnbs.carelink.digital/home"
+              >
+                Book doctor via Carelink
+              </a>
+            )}
+
+            <button
+              className="button secondary"
+              onClick={() => {
+                setSubmitted(false);
+                setOutcome('');
+              }}
             >
-              <option value="No">Pregnant: No</option>
-              <option value="Yes">Pregnant: Yes</option>
-            </select>
-          )}
-
-          <select
-            value={form.country}
-            onChange={(e) => updateCountry(e.target.value)}
-            className="w-full border p-4 rounded-2xl"
-          >
-            <option>South Africa</option>
-            <option>England</option>
-            <option>Wales</option>
-            <option>Scotland</option>
-          </select>
-
-          <div className="flex gap-3">
-            <input
-              type="text"
-              value={form.dialCode}
-              readOnly
-              className="w-24 border p-4 rounded-2xl bg-gray-100"
-            />
-
-            <input
-              type="text"
-              placeholder="Phone number"
-              value={form.phone}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  phone: e.target.value,
-                })
-              }
-              className="flex-1 border p-4 rounded-2xl"
-            />
+              New triage
+            </button>
           </div>
+        </div>
+      ) : (
+        <>
+          <section className="hero">
+            <div className="card">
+              <h1>60-second pharmacy triage</h1>
+              <p>
+                Capture basic details, screen red flags, and route patients to
+                emergency care, doctor in pharmacy, pharmacist care, or
+                self-care.
+              </p>
+              <a className="button" href="#triage">
+                Start triage
+              </a>
+            </div>
 
-          <input
-            type="text"
-            placeholder="Location"
-            value={form.location}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                location: e.target.value,
-              })
-            }
-            className="w-full border p-4 rounded-2xl"
-          />
+            <div className="card">
+              <h2>Built for pharmacies</h2>
+              <p>
+                Safe red-flag triage, referral support, Supabase storage, and
+                basic analytics.
+              </p>
+            </div>
+          </section>
 
-          <textarea
-            placeholder="Describe symptoms"
-            value={form.symptoms}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                symptoms: e.target.value,
-              })
-            }
-            className="w-full border p-4 rounded-2xl h-32"
-          />
+          <div id="triage" className="card" style={{ marginTop: 24 }}>
+            <h2>Patient details</h2>
 
-          <div className="space-y-3">
-            <label className="flex items-center gap-3">
+            <div className="grid">
+              <label>
+                Full name
+                <input
+                  className="input"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  placeholder="Patient name"
+                />
+              </label>
+
+              <label>
+                Date of birth
+                <input
+                  className="input"
+                  type="date"
+                  value={form.dob}
+                  onChange={(e) => setForm({ ...form, dob: e.target.value })}
+                />
+              </label>
+
+              <label>
+                Gender
+                <select
+                  value={form.gender}
+                  onChange={(e) => setForm({ ...form, gender: e.target.value })}
+                >
+                  <option value="">Select gender</option>
+                  <option value="Female">Female</option>
+                  <option value="Male">Male</option>
+                  <option value="Other">Other / prefer not to say</option>
+                </select>
+              </label>
+
+              {form.gender === 'Female' && (
+                <label>
+                  Pregnant?
+                  <select
+                    value={form.pregnant}
+                    onChange={(e) =>
+                      setForm({ ...form, pregnant: e.target.value })
+                    }
+                  >
+                    <option value="No">No</option>
+                    <option value="Yes">Yes</option>
+                    <option value="Unsure">Unsure</option>
+                  </select>
+                </label>
+              )}
+
+              <label>
+                Country
+                <select
+                  value={form.country}
+                  onChange={(e) => updateCountry(e.target.value)}
+                >
+                  <option>South Africa</option>
+                  <option>England</option>
+                  <option>Wales</option>
+                  <option>Scotland</option>
+                </select>
+              </label>
+
+              <label>
+                Mobile / WhatsApp
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    className="input"
+                    value={form.dialCode}
+                    readOnly
+                    style={{ maxWidth: 90 }}
+                  />
+                  <input
+                    className="input"
+                    value={form.phone}
+                    onChange={(e) =>
+                      setForm({ ...form, phone: e.target.value })
+                    }
+                    placeholder="Mobile number"
+                  />
+                </div>
+              </label>
+
+              <label>
+                Location
+                <input
+                  className="input"
+                  value={form.location}
+                  onChange={(e) =>
+                    setForm({ ...form, location: e.target.value })
+                  }
+                  placeholder="Pharmacy, suburb or town"
+                />
+              </label>
+            </div>
+
+            <h2>Main symptom</h2>
+
+            <label>
+              Describe symptoms
+              <textarea
+                value={form.symptoms}
+                onChange={(e) =>
+                  setForm({ ...form, symptoms: e.target.value })
+                }
+                placeholder="Example: fever, cough, chest pain, vomiting..."
+                rows={4}
+              />
+            </label>
+
+            <h2>Red flag check</h2>
+
+            <label className="check">
               <input
                 type="checkbox"
                 checked={form.fever}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    fever: e.target.checked,
-                  })
-                }
+                onChange={(e) => setForm({ ...form, fever: e.target.checked })}
               />
-              Fever
+              <span>Fever or symptoms not improving</span>
             </label>
 
-            <label className="flex items-center gap-3">
+            <label className="check">
               <input
                 type="checkbox"
                 checked={form.chestPain}
                 onChange={(e) =>
-                  setForm({
-                    ...form,
-                    chestPain: e.target.checked,
-                  })
+                  setForm({ ...form, chestPain: e.target.checked })
                 }
               />
-              Chest pain
+              <span>Chest pain, collapse, fainting, or severe palpitations</span>
             </label>
 
-            <label className="flex items-center gap-3">
+            <label className="check">
               <input
                 type="checkbox"
                 checked={form.breathing}
                 onChange={(e) =>
-                  setForm({
-                    ...form,
-                    breathing: e.target.checked,
-                  })
+                  setForm({ ...form, breathing: e.target.checked })
                 }
               />
-              Difficulty breathing
+              <span>Difficulty breathing, blue lips, choking, or unable to speak</span>
             </label>
 
-            <label className="flex items-center gap-3">
+            <label className="check">
               <input
                 type="checkbox"
                 checked={form.bleeding}
                 onChange={(e) =>
-                  setForm({
-                    ...form,
-                    bleeding: e.target.checked,
-                  })
+                  setForm({ ...form, bleeding: e.target.checked })
                 }
               />
-              Severe bleeding
+              <span>Severe or uncontrolled bleeding</span>
             </label>
-          </div>
 
-          <button
-            onClick={handleSubmit}
-            className="w-full bg-black text-white py-4 rounded-2xl text-lg font-bold"
-          >
-            Submit assessment
-          </button>
-        </div>
-      </div>
+            <label className="check">
+              <input type="checkbox" required />
+              <span>
+                I understand this tool supports triage and does not replace a
+                clinical diagnosis.
+              </span>
+            </label>
+
+            <button className="button" onClick={handleSubmit} disabled={saving}>
+              {saving ? 'Saving triage...' : 'Get triage recommendation'}
+            </button>
+          </div>
+        </>
+      )}
+
+      <p className="small" style={{ marginTop: 20 }}>
+        Admin view: <a href="/admin">/admin</a>
+      </p>
     </main>
   );
 }
