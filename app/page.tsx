@@ -1,430 +1,487 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { useState } from 'react';
+import { decideTriage, redFlagQuestions } from './lib/triageRules';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+type FormState = {
+  name: string;
+  dob: string;
+  gender: string;
+  country: string;
+  dialCode: string;
+  phone: string;
+  email: string;
+  location: string;
+  age: string;
+  pregnant: string;
+  symptom: string;
+  duration: string;
+  redFlags: string[];
+  notes: string;
+};
+
+const countryDialCodes: Record<string, string> = {
+  England: '+44',
+  Wales: '+44',
+  Scotland: '+44',
+  'South Africa': '+27',
+};
+
+const emergencyContacts: Record<string, string> = {
+  'South Africa': '27823111111',
+  England: '44111',
+  Wales: '44111',
+  Scotland: '44111',
+};
+
+const initialForm: FormState = {
+  name: '',
+  dob: '',
+  gender: '',
+  country: 'South Africa',
+  dialCode: '+27',
+  phone: '',
+  email: '',
+  location: '',
+  age: '',
+  pregnant: 'no',
+  symptom: '',
+  duration: 'less_than_3_days',
+  redFlags: [],
+  notes: '',
+};
+
+function calculateAge(dob: string) {
+  if (!dob) return '';
+
+  const birthDate = new Date(dob);
+  const today = new Date();
+
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+
+  if (
+    monthDiff < 0 ||
+    (monthDiff === 0 && today.getDate() < birthDate.getDate())
+  ) {
+    age--;
+  }
+
+  return age >= 0 ? String(age) : '';
+}
 
 export default function Home() {
-  const [loading, setLoading] = useState(false);
-
-  const [form, setForm] = useState({
-    name: "",
-    dob: "",
-    gender: "",
-    phone: "",
-    location: "",
-    country: "South Africa",
-    symptoms: "",
-    fever: false,
-    chestPain: false,
-    breathing: false,
-    bleeding: false,
-    notes: "",
-  });
-
+  const [form, setForm] = useState<FormState>(initialForm);
   const [result, setResult] = useState<any>(null);
 
-  const handleSubmit = async () => {
-    setLoading(true);
+  function update(key: keyof FormState, value: any) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
 
-    let outcome = "Pharmacist Care";
-    let referralUrl = "";
-    let referralChannel = "";
+  function updateCountry(country: string) {
+    setForm((prev) => ({
+      ...prev,
+      country,
+      dialCode: countryDialCodes[country] || '',
+    }));
+  }
 
-    const emergency =
-      form.chestPain ||
-      form.breathing ||
-      form.bleeding;
+  function updateDob(dob: string) {
+    setForm((prev) => ({
+      ...prev,
+      dob,
+      age: calculateAge(dob),
+    }));
+  }
 
-    if (emergency) {
-      outcome = "Emergency Referral";
-    } else if (
-      form.symptoms.toLowerCase().includes("doctor") ||
-      form.symptoms.toLowerCase().includes("pain") ||
-      form.symptoms.toLowerCase().includes("infection")
-    ) {
-      outcome = "Doctor Referral";
-    }
+  function updateGender(gender: string) {
+    setForm((prev) => ({
+      ...prev,
+      gender,
+      pregnant: gender === 'female' ? prev.pregnant : 'no',
+    }));
+  }
 
-    // UK Routing
-    if (
-      form.country === "United Kingdom" &&
-      outcome === "Doctor Referral"
-    ) {
-      referralUrl = "https://nhs.carelink.digital";
-      referralChannel = "NHS Carelink UK";
-    }
+  function toggleFlag(id: string) {
+    setForm((prev) => ({
+      ...prev,
+      redFlags: prev.redFlags.includes(id)
+        ? prev.redFlags.filter((x) => x !== id)
+        : [...prev.redFlags, id],
+    }));
+  }
 
-    // South Africa Routing
-    if (
-      form.country === "South Africa" &&
-      outcome === "Doctor Referral"
-    ) {
-      referralUrl = "https://carelink.digital";
-      referralChannel = "Carelink South Africa";
-    }
-
-    const payload = {
-      name: form.name,
-      dob: form.dob,
-      gender: form.gender,
-      phone: form.phone,
-      location: form.location,
-      symptoms: form.symptoms,
-      fever: form.fever,
-      chest_pain: form.chestPain,
-      breathing: form.breathing,
-      bleeding: form.bleeding,
-      outcome,
-      referral_url: referralUrl,
-      referral_channel: referralChannel,
-      referral_status: "Pending",
-      follow_up_required: true,
-      whatsapp_sent: false,
-      sms_sent: false,
-      email_sent: false,
-      clinical_notes: form.notes,
-    };
-
-    const { error } = await supabase
-      .from("triage_records")
-      .insert([payload]);
-
-    if (error) {
-      alert(error.message);
-      setLoading(false);
-      return;
-    }
-
-    setResult({
-      outcome,
-      referralUrl,
-      referralChannel,
+  function submitTriage() {
+    const decision = decideTriage({
+      age: Number(form.age || 0),
+      pregnant: form.gender === 'female' ? form.pregnant : 'no',
+      symptom: form.symptom,
+      duration: form.duration,
+      redFlags: form.redFlags,
     });
 
-    setLoading(false);
-  };
+    const record = {
+      id: Date.now(),
+      createdAt: new Date().toISOString(),
+      form,
+      decision,
+    };
+
+    const existing = JSON.parse(
+      localStorage.getItem('symptomai_triages') || '[]'
+    );
+
+    localStorage.setItem(
+      'symptomai_triages',
+      JSON.stringify([record, ...existing])
+    );
+
+    setResult(decision);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  const carelinkUrl = 'https://cpnbs.carelink.digital/home';
+
+  const patientPhone = `${form.dialCode}${form.phone}`;
+
+  const standardWhatsappText = encodeURIComponent(
+    `SymptomAI referral request for ${form.name}. Outcome: ${result?.title}. Phone: ${patientPhone}. Country: ${form.country}. Location: ${form.location}.`
+  );
+
+  const emergencyWhatsappText = encodeURIComponent(
+    `EMERGENCY TRIAGE ALERT
+
+Patient: ${form.name}
+Phone: ${patientPhone}
+Country: ${form.country}
+Location: ${form.location}
+Outcome: ${result?.title}
+
+SymptomAI identified emergency referral criteria. Please contact or assist the patient urgently.
+
+If immediate danger is present, the patient should call local emergency services immediately.`
+  );
+
+  const standardWhatsappUrl = `https://wa.me/?text=${standardWhatsappText}`;
+
+  const emergencyWhatsappUrl = `https://wa.me/${
+    emergencyContacts[form.country]
+  }?text=${emergencyWhatsappText}`;
 
   return (
-    <main className="min-h-screen bg-[#edf4f4] p-4">
-      <div className="max-w-3xl mx-auto">
-
-        {/* HEADER */}
-        <div className="flex items-center gap-4 mb-6">
-          <div className="w-20 h-20 rounded-3xl bg-[#052049] flex items-center justify-center text-5xl text-[#18c5b7] font-bold">
-            +
-          </div>
-
-          <div>
-            <h1 className="text-5xl font-black text-[#052049]">
-              SymptomAI
-            </h1>
-
-            <p className="text-gray-500 text-xl font-semibold">
-              Right care. Right place. Right now.
-            </p>
-          </div>
-        </div>
-
-        {/* HERO */}
-        <div className="bg-white rounded-[40px] shadow-xl p-8 mb-6">
-          <h2 className="text-5xl font-black text-[#052049] leading-tight">
-            60-second pharmacy triage
-          </h2>
-
-          <p className="text-gray-500 text-2xl mt-6 leading-relaxed">
-            Capture symptoms, identify red flags,
-            and route patients to pharmacist care,
-            GP in pharmacy, or emergency services.
-          </p>
-        </div>
-
-        {/* FORM */}
-        <div className="bg-white rounded-[40px] shadow-xl p-8 space-y-6">
-
-          <div>
-            <label className="font-bold text-[#052049]">
-              Full name
-            </label>
-
-            <input
-              className="w-full mt-2 border rounded-2xl p-4 text-lg"
-              placeholder="Patient name"
-              value={form.name}
-              onChange={(e) =>
-                setForm({ ...form, name: e.target.value })
-              }
-            />
-          </div>
-
-          <div>
-            <label className="font-bold text-[#052049]">
-              Date of birth
-            </label>
-
-            <input
-              type="date"
-              className="w-full mt-2 border rounded-2xl p-4 text-lg"
-              value={form.dob}
-              onChange={(e) =>
-                setForm({ ...form, dob: e.target.value })
-              }
-            />
-          </div>
-
-          <div>
-            <label className="font-bold text-[#052049]">
-              Gender
-            </label>
-
-            <select
-              className="w-full mt-2 border rounded-2xl p-4 text-lg"
-              value={form.gender}
-              onChange={(e) =>
-                setForm({ ...form, gender: e.target.value })
-              }
-            >
-              <option value="">Select gender</option>
-              <option>Male</option>
-              <option>Female</option>
-              <option>Other</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="font-bold text-[#052049]">
-              Country
-            </label>
-
-            <select
-              className="w-full mt-2 border rounded-2xl p-4 text-lg"
-              value={form.country}
-              onChange={(e) =>
-                setForm({ ...form, country: e.target.value })
-              }
-            >
-              <option>South Africa</option>
-              <option>United Kingdom</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="font-bold text-[#052049]">
-              Phone number
-            </label>
-
-            <input
-              className="w-full mt-2 border rounded-2xl p-4 text-lg"
-              placeholder="+27..."
-              value={form.phone}
-              onChange={(e) =>
-                setForm({ ...form, phone: e.target.value })
-              }
-            />
-          </div>
-
-          <div>
-            <label className="font-bold text-[#052049]">
-              Pharmacy / location
-            </label>
-
-            <input
-              className="w-full mt-2 border rounded-2xl p-4 text-lg"
-              placeholder="Suburb or pharmacy"
-              value={form.location}
-              onChange={(e) =>
-                setForm({ ...form, location: e.target.value })
-              }
-            />
-          </div>
-
-          <div>
-            <label className="font-bold text-[#052049]">
-              Main symptoms
-            </label>
-
-            <textarea
-              className="w-full mt-2 border rounded-2xl p-4 text-lg min-h-[140px]"
-              placeholder="Describe symptoms"
-              value={form.symptoms}
-              onChange={(e) =>
-                setForm({ ...form, symptoms: e.target.value })
-              }
-            />
-          </div>
-
-          {/* RED FLAGS */}
-          <div>
-            <h3 className="text-3xl font-black text-[#052049] mb-4">
-              Red flag check
-            </h3>
-
-            <div className="space-y-4">
-
-              <label className="flex gap-4 items-start bg-[#f7f7f7] rounded-3xl p-5">
-                <input
-                  type="checkbox"
-                  checked={form.fever}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      fever: e.target.checked,
-                    })
-                  }
-                />
-
-                <span className="font-bold text-xl">
-                  Fever
-                </span>
-              </label>
-
-              <label className="flex gap-4 items-start bg-[#f7f7f7] rounded-3xl p-5">
-                <input
-                  type="checkbox"
-                  checked={form.chestPain}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      chestPain: e.target.checked,
-                    })
-                  }
-                />
-
-                <span className="font-bold text-xl">
-                  Chest pain or collapse
-                </span>
-              </label>
-
-              <label className="flex gap-4 items-start bg-[#f7f7f7] rounded-3xl p-5">
-                <input
-                  type="checkbox"
-                  checked={form.breathing}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      breathing: e.target.checked,
-                    })
-                  }
-                />
-
-                <span className="font-bold text-xl">
-                  Difficulty breathing
-                </span>
-              </label>
-
-              <label className="flex gap-4 items-start bg-[#f7f7f7] rounded-3xl p-5">
-                <input
-                  type="checkbox"
-                  checked={form.bleeding}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      bleeding: e.target.checked,
-                    })
-                  }
-                />
-
-                <span className="font-bold text-xl">
-                  Severe bleeding
-                </span>
-              </label>
-            </div>
-          </div>
-
-          {/* NOTES */}
-          <div>
-            <label className="font-bold text-[#052049]">
-              Clinical notes
-            </label>
-
-            <textarea
-              className="w-full mt-2 border rounded-2xl p-4 text-lg min-h-[120px]"
-              placeholder="Optional pharmacist notes"
-              value={form.notes}
-              onChange={(e) =>
-                setForm({ ...form, notes: e.target.value })
-              }
-            />
-          </div>
-
-          {/* BUTTON */}
-          <button
-            onClick={handleSubmit}
-            disabled={loading}
-            className="w-full bg-[#18c5b7] hover:bg-[#10b2a5] transition text-white text-2xl font-black rounded-3xl py-5"
-          >
-            {loading
-              ? "Saving..."
-              : "Get triage recommendation"}
-          </button>
-        </div>
-
-        {/* RESULT */}
-        {result && (
-          <div className="bg-white rounded-[40px] shadow-xl p-8 mt-6">
-
-            <h2 className="text-4xl font-black text-[#052049]">
-              Triage outcome
-            </h2>
-
-            <div className="mt-6 text-2xl font-bold text-[#18c5b7]">
-              {result.outcome}
-            </div>
-
-            {result.referralUrl && (
-              <div className="mt-6">
-
-                <div className="text-gray-500 mb-2">
-                  Referral platform
-                </div>
-
-                <a
-                  href={result.referralUrl}
-                  target="_blank"
-                  className="inline-block bg-[#052049] text-white px-6 py-4 rounded-2xl font-bold"
-                >
-                  Open {result.referralChannel}
-                </a>
-              </div>
-            )}
-
-            {/* WhatsApp */}
-            <div className="mt-6">
-              <a
-                href={`https://wa.me/${form.phone.replace(/\+/g, "")}`}
-                target="_blank"
-                className="inline-block bg-green-500 text-white px-6 py-4 rounded-2xl font-bold"
-              >
-                WhatsApp follow-up
-              </a>
-            </div>
-
-            {/* EMAIL */}
-            <div className="mt-4">
-              <a
-                href={`mailto:?subject=SymptomAI Referral&body=Outcome: ${result.outcome}`}
-                className="inline-block bg-gray-700 text-white px-6 py-4 rounded-2xl font-bold"
-              >
-                Email advice
-              </a>
-            </div>
-          </div>
-        )}
-
-        {/* ADMIN */}
-        <div className="text-center mt-8 mb-10">
-          <a
-            href="/admin"
-            className="text-gray-500 underline"
-          >
-            Admin dashboard
-          </a>
+    <main className="container">
+      <div className="logo">
+        <div className="logoMark" />
+        <div>
+          SymptomAI
+          <div className="small">Right care. Right place. Right now.</div>
         </div>
       </div>
+
+      {result ? (
+        <div className={`card result ${result.level}`} style={{ marginTop: 24 }}>
+          <span className="badge">{result.level.replaceAll('_', ' ')}</span>
+
+          <h1>{result.title}</h1>
+          <h2>{result.recommendation}</h2>
+
+          <p>
+            <b>Why:</b> {result.reason}
+          </p>
+
+          <p>
+            <b>Clinical reference:</b> {result.reference}
+          </p>
+
+          <p>
+            <b>Safety-net advice:</b> {result.safetyNet}
+          </p>
+
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 20 }}>
+            {result.level === 'EMERGENCY' && (
+              <>
+                <a className="button danger" href="tel:112">
+                  Call emergency services
+                </a>
+
+                <a
+                  className="button danger"
+                  href={emergencyWhatsappUrl}
+                  target="_blank"
+                >
+                  Contact emergency support
+                </a>
+              </>
+            )}
+
+            {result.level === 'DOCTOR_IN_PHARMACY' && (
+              <>
+                <a className="button" href={carelinkUrl} target="_blank">
+                  Book doctor via Carelink
+                </a>
+
+                <a
+                  className="button secondary"
+                  href={standardWhatsappUrl}
+                  target="_blank"
+                >
+                  WhatsApp referral note
+                </a>
+              </>
+            )}
+
+            {(result.level === 'PHARMACIST_CARE' ||
+              result.level === 'SELF_CARE') && (
+              <a
+                className="button secondary"
+                href={standardWhatsappUrl}
+                target="_blank"
+              >
+                Send advice / follow-up note
+              </a>
+            )}
+
+            <button
+              className="button"
+              onClick={() => {
+                setResult(null);
+                setForm(initialForm);
+              }}
+            >
+              New triage
+            </button>
+          </div>
+        </div>
+      ) : (
+        <section className="hero">
+          <div className="card">
+            <h1>60-second pharmacy triage</h1>
+
+            <p>
+              Capture basic details, screen red flags, and route patients to
+              emergency care, doctor in pharmacy, pharmacist care, or self-care.
+            </p>
+
+            <a className="button" href="#triage">
+              Start triage
+            </a>
+          </div>
+
+          <div className="card">
+            <h2>Built for pharmacies</h2>
+
+            <p>
+              Safe red-flag triage, referral support, and basic analytics.
+            </p>
+          </div>
+        </section>
+      )}
+
+      {!result && (
+        <div id="triage" className="card" style={{ marginTop: 24 }}>
+          <h2>Patient details</h2>
+
+          <div className="grid">
+            <label>
+              Name
+              <input
+                className="input"
+                value={form.name}
+                onChange={(e) => update('name', e.target.value)}
+                placeholder="Patient name"
+              />
+            </label>
+
+            <label>
+              Date of birth
+              <input
+                className="input"
+                type="date"
+                value={form.dob}
+                onChange={(e) => updateDob(e.target.value)}
+              />
+            </label>
+
+            <label>
+              Age
+              <input
+                className="input"
+                type="number"
+                value={form.age}
+                onChange={(e) => update('age', e.target.value)}
+                placeholder="Auto-calculated from DOB"
+              />
+            </label>
+
+            <label>
+              Gender
+              <select
+                value={form.gender}
+                onChange={(e) => updateGender(e.target.value)}
+              >
+                <option value="">Select gender</option>
+                <option value="female">Female</option>
+                <option value="male">Male</option>
+                <option value="other">Other / prefer not to say</option>
+              </select>
+            </label>
+
+            {form.gender === 'female' && (
+              <label>
+                Pregnant?
+                <select
+                  value={form.pregnant}
+                  onChange={(e) => update('pregnant', e.target.value)}
+                >
+                  <option value="no">No</option>
+                  <option value="yes">Yes</option>
+                  <option value="unsure">Unsure</option>
+                </select>
+              </label>
+            )}
+
+            <label>
+              Country
+              <select
+                value={form.country}
+                onChange={(e) => updateCountry(e.target.value)}
+              >
+                <option value="South Africa">South Africa</option>
+                <option value="England">England</option>
+                <option value="Wales">Wales</option>
+                <option value="Scotland">Scotland</option>
+              </select>
+            </label>
+
+            <label>
+              Mobile / WhatsApp
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  className="input"
+                  value={form.dialCode}
+                  readOnly
+                  style={{ maxWidth: 90 }}
+                />
+
+                <input
+                  className="input"
+                  value={form.phone}
+                  onChange={(e) => update('phone', e.target.value)}
+                  placeholder="Mobile number"
+                />
+              </div>
+            </label>
+
+            <label>
+              Email
+              <input
+                className="input"
+                value={form.email}
+                onChange={(e) => update('email', e.target.value)}
+                placeholder="Optional"
+              />
+            </label>
+
+            <label>
+              Nearest pharmacy / location
+              <input
+                className="input"
+                value={form.location}
+                onChange={(e) => update('location', e.target.value)}
+                placeholder="Pharmacy or suburb"
+              />
+            </label>
+          </div>
+
+          <h2>Main symptom</h2>
+
+          <div className="grid">
+            <label>
+              Symptom category
+              <select
+                value={form.symptom}
+                onChange={(e) => update('symptom', e.target.value)}
+              >
+                <option value="">Select symptom</option>
+                <option value="cold">Cold / flu symptoms</option>
+                <option value="cough">Cough</option>
+                <option value="breathing">Breathing / asthma</option>
+                <option value="chest">Chest pain / palpitations</option>
+                <option value="abdominal">
+                  Stomach pain / vomiting / diarrhoea
+                </option>
+                <option value="urinary">Urinary symptoms</option>
+                <option value="pain">Pain / headache</option>
+                <option value="skin">Skin / rash</option>
+                <option value="allergy">Allergy</option>
+                <option value="injury">Injury / wound / burn</option>
+                <option value="pregnancy">Pregnancy concern</option>
+                <option value="child">Child illness</option>
+                <option value="minor">Other minor symptom</option>
+              </select>
+            </label>
+
+            <label>
+              Duration
+              <select
+                value={form.duration}
+                onChange={(e) => update('duration', e.target.value)}
+              >
+                <option value="less_than_24_hours">Less than 24 hours</option>
+                <option value="less_than_3_days">Less than 3 days</option>
+                <option value="more_than_3_days">More than 3 days</option>
+                <option value="sudden_or_worsening">Sudden or worsening</option>
+              </select>
+            </label>
+          </div>
+
+          <h2>Red flag check</h2>
+
+          <p>
+            Select any serious symptom present. If unsure, select it and refer
+            upwards.
+          </p>
+
+          {redFlagQuestions.map((q) => (
+            <label className="check" key={q.id}>
+              <input
+                type="checkbox"
+                checked={form.redFlags.includes(q.id)}
+                onChange={() => toggleFlag(q.id)}
+              />
+
+              <span>{q.label}</span>
+            </label>
+          ))}
+
+          <label>
+            Optional notes
+            <textarea
+              value={form.notes}
+              onChange={(e) => update('notes', e.target.value)}
+              placeholder="Short pharmacist note"
+              rows={3}
+            />
+          </label>
+
+          <label className="check">
+            <input type="checkbox" required />
+
+            <span>
+              I understand this tool supports triage and does not replace a
+              clinical diagnosis.
+            </span>
+          </label>
+
+          <button className="button" onClick={submitTriage}>
+            Get triage recommendation
+          </button>
+        </div>
+      )}
+
+      <p className="small" style={{ marginTop: 20 }}>
+        Admin view: <a href="/admin">/admin</a>
+      </p>
     </main>
   );
 }
