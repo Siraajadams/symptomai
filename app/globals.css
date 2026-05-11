@@ -7,21 +7,16 @@ body {
   margin: 0;
   padding: 0;
   font-family: Inter, Arial, sans-serif;
-  background: #eef6f6;
+  background: #eef8f8;
   color: #071b3d;
-}
-
-body {
-  min-height: 100vh;
 }
 
 a {
   color: inherit;
-  text-decoration: none;
 }
 
 .container {
-  max-width: 980px;
+  max-width: 760px;
   margin: 0 auto;
   padding: 36px 24px 72px;
 }
@@ -30,13 +25,13 @@ a {
   display: flex;
   align-items: center;
   gap: 16px;
-  margin-bottom: 32px;
+  margin-bottom: 34px;
 }
 
 .logoMark {
-  width: 64px;
-  height: 64px;
-  border-radius: 18px;
+  width: 72px;
+  height: 72px;
+  border-radius: 22px;
   background: #071b3d;
   position: relative;
   flex-shrink: 0;
@@ -44,89 +39,81 @@ a {
 
 .logoMark::before {
   content: "+";
+  color: #18c5b7;
+  font-size: 50px;
+  font-weight: 900;
   position: absolute;
   inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #18c5b7;
-  font-size: 42px;
+}
+
+.logo > div:last-child {
+  font-size: 46px;
   font-weight: 900;
-}
-
-.logoText {
-  display: flex;
-  flex-direction: column;
-}
-
-.logoTitle {
-  font-size: 52px;
   line-height: 1;
-  font-weight: 900;
-  color: #071b3d;
 }
 
 .small {
-  font-size: 16px;
-  font-weight: 700;
-  color: #667085;
-  margin-top: 4px;
+  font-size: 18px;
+  font-weight: 800;
+  color: #5f6f7c;
+  margin-top: 6px;
 }
 
 .hero {
   display: grid;
-  gap: 24px;
+  grid-template-columns: 1fr;
+  gap: 28px;
 }
 
 .card {
   background: #ffffff;
-  border-radius: 32px;
-  padding: 40px;
-  box-shadow: 0 18px 48px rgba(7, 27, 61, 0.08);
+  border-radius: 36px;
+  padding: 42px;
+  box-shadow: 0 20px 60px rgba(7, 27, 61, 0.08);
   border: 1px solid rgba(7, 27, 61, 0.06);
-  margin-bottom: 24px;
+  margin-bottom: 28px;
+  overflow: hidden;
 }
 
 .card h1 {
-  margin: 0 0 18px;
-  font-size: 56px;
-  line-height: 1.05;
-  font-weight: 900;
+  font-size: 54px;
+  line-height: 1.06;
+  margin: 0 0 24px;
   color: #071b3d;
+  font-weight: 900;
 }
 
 .card h2 {
-  margin: 0 0 16px;
-  font-size: 34px;
+  font-size: 38px;
   line-height: 1.15;
-  font-weight: 900;
+  margin: 0 0 22px;
   color: #071b3d;
+  font-weight: 900;
 }
 
 .card p {
-  margin: 0 0 18px;
-  font-size: 20px;
-  line-height: 1.6;
-  color: #667085;
+  font-size: 22px;
+  line-height: 1.5;
+  color: #657481;
+  margin: 0 0 24px;
 }
 
 .button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: none;
   background: #18c5b7;
   color: #ffffff;
-  border-radius: 18px;
-  padding: 16px 24px;
-  font-size: 17px;
-  font-weight: 800;
+  border: none;
+  border-radius: 22px;
+  padding: 18px 28px;
+  font-size: 20px;
+  font-weight: 900;
+  text-decoration: none;
   cursor: pointer;
-  transition: 0.2s ease;
-}
-
-.button:hover {
-  opacity: 0.92;
 }
 
 .button.secondary {
@@ -139,70 +126,71 @@ a {
 
 .grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 18px;
 }
 
 label {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  font-size: 16px;
-  font-weight: 800;
+  display: block;
+  font-size: 20px;
+  font-weight: 900;
   color: #071b3d;
+  margin-top: 18px;
 }
 
 .input,
 select,
 textarea {
   width: 100%;
-  border: 2px solid #dbe4e6;
+  margin-top: 10px;
+  padding: 18px;
   border-radius: 18px;
-  padding: 16px;
-  font-size: 16px;
-  font-family: inherit;
-  background: #ffffff;
+  border: 2px solid #dce4e6;
+  font-size: 18px;
   color: #071b3d;
-  outline: none;
-}
-
-.input:focus,
-select:focus,
-textarea:focus {
-  border-color: #18c5b7;
-}
-
-textarea {
-  resize: vertical;
+  background: white;
+  font-family: Inter, Arial, sans-serif;
 }
 
 .check {
   display: flex;
   align-items: flex-start;
-  gap: 14px;
-  padding: 18px;
-  border-radius: 22px;
-  border: 2px solid #e3eaec;
+  gap: 16px;
   background: #ffffff;
-  margin-bottom: 14px;
+  border: 2px solid #e4eaec;
+  border-radius: 24px;
+  padding: 20px;
+  margin: 16px 0;
 }
 
 .check input {
-  width: 22px;
-  height: 22px;
-  margin-top: 2px;
+  width: 26px;
+  height: 26px;
+  margin-top: 4px;
   flex-shrink: 0;
 }
 
 .check span {
-  font-size: 18px;
-  line-height: 1.4;
-  font-weight: 800;
+  font-size: 21px;
+  line-height: 1.3;
+  font-weight: 900;
   color: #071b3d;
 }
 
+.badge {
+  display: inline-block;
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: #eef8f8;
+  padding: 10px 14px;
+  border-radius: 999px;
+  margin-bottom: 20px;
+}
+
 .result {
-  border-left: 8px solid #18c5b7;
+  border-left: 9px solid #18c5b7;
 }
 
 .result.EMERGENCY {
@@ -213,89 +201,72 @@ textarea {
   border-left-color: #f79009;
 }
 
-.badge {
-  display: inline-block;
-  background: #eef8f8;
-  color: #071b3d;
-  padding: 8px 12px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  margin-bottom: 16px;
-}
-
-.resultActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 20px;
-}
-
-@media (max-width: 768px) {
+@media (max-width: 640px) {
   .container {
-    padding: 24px 16px 56px;
+    padding: 26px 18px 56px;
   }
 
   .logo {
-    align-items: flex-start;
+    gap: 14px;
+    margin-bottom: 28px;
   }
 
   .logoMark {
-    width: 58px;
-    height: 58px;
+    width: 68px;
+    height: 68px;
+    border-radius: 22px;
   }
 
-  .logoTitle {
-    font-size: 38px;
+  .logoMark::before {
+    font-size: 48px;
+  }
+
+  .logo > div:last-child {
+    font-size: 42px;
   }
 
   .small {
-    font-size: 14px;
+    font-size: 18px;
+    line-height: 1.2;
   }
 
   .card {
-    padding: 28px 22px;
-    border-radius: 28px;
+    padding: 32px 28px;
+    border-radius: 34px;
   }
 
   .card h1 {
-    font-size: 34px;
-    line-height: 1.1;
-    word-break: break-word;
+    font-size: 44px;
+    line-height: 1.08;
   }
 
   .card h2 {
-    font-size: 26px;
-    line-height: 1.2;
-    word-break: break-word;
+    font-size: 32px;
   }
 
-  .card p {
-    font-size: 17px;
-    line-height: 1.5;
+  .card p,
+  .result p {
+    font-size: 20px;
+    line-height: 1.45;
   }
 
-  .grid {
-    grid-template-columns: 1fr;
+  label {
+    font-size: 20px;
   }
 
-  .button {
-    width: 100%;
-    font-size: 16px;
-    padding: 15px 18px;
-  }
-
-  .check {
-    padding: 16px;
+  .input,
+  select,
+  textarea {
+    font-size: 18px;
+    padding: 17px;
   }
 
   .check span {
-    font-size: 16px;
+    font-size: 20px;
   }
 
-  .resultActions {
-    flex-direction: column;
+  .button {
+    font-size: 19px;
+    padding: 17px 24px;
   }
 }
