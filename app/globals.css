@@ -1,232 +1,75 @@
-* {
-  box-sizing: border-box;
-}
-
-html,
-body {
-  margin: 0;
-  padding: 0;
-  font-family: Inter, Arial, sans-serif;
-  background: #eef8f8;
-  color: #071b3d;
-}
-
-a {
-  color: inherit;
-}
-
-.container {
-  max-width: 760px;
-  margin: 0 auto;
-  padding: 52px 48px 80px;
-}
-
-.logo {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  margin-bottom: 52px;
-}
-
-.logoMark {
-  width: 90px;
-  height: 90px;
-  border-radius: 28px;
-  background: #071b3d;
-  position: relative;
-}
-
-.logoMark::before {
-  content: "+";
-  color: #18c5b7;
-  font-size: 64px;
-  font-weight: 900;
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.logo > div:last-child {
-  font-size: 56px;
-  font-weight: 900;
-  line-height: 1;
-  color: #071b3d;
-}
-
-.small {
-  font-size: 22px;
-  font-weight: 800;
-  color: #5f6f7c;
-  margin-top: 8px;
-}
-
-.hero {
-  display: grid;
-  gap: 56px;
-}
-
-.card {
-  background: #ffffff;
-  border-radius: 44px;
-  padding: 52px;
-  box-shadow: 0 24px 70px rgba(7, 27, 61, 0.08);
-  border: 1px solid rgba(7, 27, 61, 0.06);
-}
-
-.card h1 {
-  font-size: 64px;
-  line-height: 1.06;
-  margin: 0 0 32px;
-  color: #071b3d;
-  font-weight: 900;
-}
-
-.card h2 {
-  font-size: 44px;
-  line-height: 1.15;
-  margin: 0 0 32px;
-  color: #071b3d;
-  font-weight: 900;
-}
-
-.card p {
-  font-size: 30px;
-  line-height: 1.45;
-  color: #657481;
-  margin: 0 0 32px;
-}
-
-.button {
-  display: inline-block;
-  background: #18c5b7;
-  color: #ffffff;
-  border: none;
-  border-radius: 28px;
-  padding: 24px 38px;
-  font-size: 26px;
-  font-weight: 900;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.button.secondary {
-  background: #071b3d;
-}
-
-.button.danger {
-  background: #d92d20;
-}
-
-.grid {
-  display: grid;
-  gap: 24px;
-}
-
-label {
-  display: block;
-  font-size: 28px;
-  font-weight: 900;
-  color: #071b3d;
-  margin-top: 28px;
-}
-
-.input,
-select,
-textarea {
-  width: 100%;
-  margin-top: 14px;
-  padding: 24px 26px;
-  border-radius: 22px;
-  border: 2px solid #dce4e6;
-  font-size: 26px;
-  color: #071b3d;
-  background: white;
-}
-
-textarea {
-  resize: vertical;
-}
-
-.check {
-  display: flex;
-  align-items: flex-start;
-  gap: 22px;
-  background: #ffffff;
-  border: 2px solid #e4eaec;
-  border-radius: 28px;
-  padding: 26px;
-  margin: 18px 0;
-}
-
-.check input {
-  width: 32px;
-  height: 32px;
-  margin-top: 4px;
-}
-
-.check span {
-  font-size: 30px;
-  line-height: 1.25;
-  font-weight: 900;
-  color: #071b3d;
-}
-
-.badge {
-  display: inline-block;
-  font-size: 16px;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #071b3d;
-  margin-bottom: 20px;
-}
-
-.result {
-  border-left: 10px solid #18c5b7;
-}
-
-.result.EMERGENCY {
-  border-left-color: #d92d20;
-}
-
-.result.DOCTOR_IN_PHARMACY {
-  border-left-color: #f79009;
-}
-
 @media (max-width: 640px) {
   .container {
-    padding: 52px 48px 80px;
+    padding: 28px 20px 56px;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .logo {
+    gap: 14px;
+    margin-bottom: 28px;
   }
 
   .logoMark {
-    width: 90px;
-    height: 90px;
+    width: 64px;
+    height: 64px;
+    border-radius: 20px;
+  }
+
+  .logoMark::before {
+    font-size: 46px;
   }
 
   .logo > div:last-child {
-    font-size: 56px;
+    font-size: 40px;
   }
 
   .small {
-    font-size: 22px;
+    font-size: 18px;
+    line-height: 1.2;
   }
 
   .card {
-    padding: 48px;
-    border-radius: 44px;
+    padding: 28px;
+    border-radius: 32px;
+    overflow-wrap: anywhere;
   }
 
   .card h1 {
-    font-size: 62px;
+    font-size: 38px;
+    line-height: 1.08;
   }
 
   .card h2 {
-    font-size: 44px;
+    font-size: 28px;
+    line-height: 1.15;
   }
 
-  .card p {
-    font-size: 30px;
+  .card p,
+  .result p {
+    font-size: 18px;
+    line-height: 1.5;
+  }
+
+  .check span {
+    font-size: 20px;
+    line-height: 1.3;
+  }
+
+  label {
+    font-size: 20px;
+  }
+
+  .input,
+  select,
+  textarea {
+    font-size: 18px;
+    padding: 16px;
+  }
+
+  .button {
+    font-size: 18px;
+    padding: 16px 20px;
+    border-radius: 20px;
   }
 }
