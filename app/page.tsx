@@ -45,7 +45,7 @@ const initialForm: FormState = {
   location: '',
   age: '',
   pregnant: 'no',
-  symptoms: '',
+  symptoms: [],
   duration: 'less_than_3_days',
   redFlags: [],
   notes: '',
