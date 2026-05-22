@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 type FormState = {
   name: string;
@@ -23,6 +23,7 @@ type TriageResult = {
   urgency: string;
   advice: string;
   summary: string;
+  reasoning: string;
   routeType: 'emergency' | 'doctor' | 'pharmacist';
 };
 
@@ -44,6 +45,7 @@ const initialForm: FormState = {
 const symptoms = [
   'Backache',
   'Bites',
+  'Blurred Vision',
   'Cold and Flu',
   'Constipation',
   'Dental Pain',
@@ -51,10 +53,14 @@ const symptoms = [
   'Earache',
   'Eye Infection',
   'Fever',
+  'Gastric Ulcer',
   'Hayfever',
   'Headache',
   'Heartburn',
+  'Joint Pain',
   'Menstrual Pain',
+  'Migraine',
+  'Muscle Pain',
   'Palpitations',
   'Piles',
   'Poisoning',
@@ -62,6 +68,7 @@ const symptoms = [
   'Red Eyes',
   'Sinus',
   'Stomach Cramps',
+  'Thrush',
   'Urinary Tract Infection',
 ].sort();
 
@@ -73,13 +80,26 @@ const redFlags = [
   'Loss of consciousness',
   'Severe dehydration',
   'Stroke symptoms',
+  'Sudden blurred vision',
+  'Severe headache / worst headache',
 ];
 
 function decideTriage(form: FormState): TriageResult {
+  const emergencySymptoms = ['Poisoning', 'Palpitations', 'Blurred Vision'];
+  const doctorSymptoms = [
+    'Dental Pain',
+    'Earache',
+    'Eye Infection',
+    'Urinary Tract Infection',
+    'Fever',
+    'Migraine',
+    'Gastric Ulcer',
+    'Thrush',
+  ];
+
   if (
     form.redFlags.length > 0 ||
-    form.symptoms.includes('Poisoning') ||
-    form.symptoms.includes('Palpitations')
+    form.symptoms.some((s) => emergencySymptoms.includes(s))
   ) {
     return {
       level: 'Emergency',
@@ -89,16 +109,14 @@ function decideTriage(form: FormState): TriageResult {
         'Seek urgent medical attention immediately. If in South Africa, call Netcare 911 on 082 911 or local emergency services.',
       summary:
         'Red flag or high-risk symptoms were selected and require urgent escalation.',
+      reasoning:
+        'The triage engine detected emergency indicators such as red flags, possible poisoning, palpitations, sudden visual changes, breathing difficulty, chest pain, severe bleeding, confusion, or stroke-type symptoms. These should not be managed as routine pharmacy care.',
       routeType: 'emergency',
     };
   }
 
   if (
-    form.symptoms.includes('Dental Pain') ||
-    form.symptoms.includes('Earache') ||
-    form.symptoms.includes('Eye Infection') ||
-    form.symptoms.includes('Urinary Tract Infection') ||
-    form.symptoms.includes('Fever') ||
+    form.symptoms.some((s) => doctorSymptoms.includes(s)) ||
     form.duration === 'More than 3 days' ||
     form.duration === 'Sudden or worsening' ||
     form.pregnant === 'yes' ||
@@ -112,6 +130,8 @@ function decideTriage(form: FormState): TriageResult {
         'A clinical assessment is recommended. Refer to a GP, doctor in pharmacy, or prescribing pharmacist.',
       summary:
         'The symptoms may require examination, prescribing, or further clinical assessment.',
+      reasoning:
+        'The selected symptoms may require clinical examination, diagnosis confirmation, prescription-only treatment, or escalation based on duration, pregnancy status, fever, infection symptoms, urinary symptoms, eye symptoms, migraine, gastric ulcer symptoms, or thrush.',
       routeType: 'doctor',
     };
   }
@@ -124,6 +144,8 @@ function decideTriage(form: FormState): TriageResult {
       'Pharmacist-led care, OTC advice, monitoring, and safety-net counselling are appropriate.',
     summary:
       'No urgent red flags were selected and the symptoms appear suitable for pharmacy-led care.',
+    reasoning:
+      'No emergency red flags were selected and the symptoms appear appropriate for pharmacist advice, OTC support, monitoring, and clear safety-net guidance.',
     routeType: 'pharmacist',
   };
 }
@@ -131,6 +153,18 @@ function decideTriage(form: FormState): TriageResult {
 export default function Page() {
   const [form, setForm] = useState<FormState>(initialForm);
   const [result, setResult] = useState<TriageResult | null>(null);
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handler);
+
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
 
   const bmi = useMemo(() => {
     const h = Number(form.heightCm) / 100;
@@ -180,7 +214,11 @@ export default function Page() {
     const query = form.city
       ? `pharmacy near ${form.city}, ${form.country}`
       : `pharmacy near me`;
-    window.open(`https://www.google.com/maps/search/${encodeURIComponent(query)}`, '_blank');
+
+    window.open(
+      `https://www.google.com/maps/search/${encodeURIComponent(query)}`,
+      '_blank'
+    );
   }
 
   function pharmacyMapByLocation() {
@@ -196,19 +234,18 @@ export default function Page() {
     );
   }
 
-  const carelinkUrl =
-    form.country === 'South Africa'
-      ? 'https://carelink.digital'
-      : form.country === 'New Zealand'
-      ? 'https://carelink.digital'
-      : 'https://cpnbs.carelink.digital/home';
+  const isUK =
+    form.country === 'England' ||
+    form.country === 'Wales' ||
+    form.country === 'Scotland';
 
-  const prescribingPharmacistUrl =
-    form.country === 'South Africa'
-      ? 'https://carelink.digital'
-      : form.country === 'New Zealand'
-      ? 'https://carelink.digital'
-      : 'https://nhs.carelink.digital';
+  const gpReferralUrl = isUK
+    ? 'https://nhs.carelink.digital'
+    : 'https://carelink.digital';
+
+  const prescribingPharmacistUrl = isUK
+    ? 'https://cpnbs.carelink.digital/home'
+    : 'https://carelink.digital';
 
   function reportText() {
     return `SYMPTOMAI TRIAGE REPORT
@@ -231,6 +268,7 @@ Destination: ${result?.destination}
 Urgency: ${result?.urgency}
 Advice: ${result?.advice}
 Summary: ${result?.summary}
+AI reasoning: ${result?.reasoning}
 
 Clinical references:
 NICE Clinical Knowledge Summaries, South African Primary Care/STG/EML principles, pharmacist referral guidance, WHO emergency escalation principles.
@@ -260,11 +298,20 @@ Generated by SymptomAI.`;
     `);
 
     win.document.close();
-    win.print();
+    win.focus();
+    setTimeout(() => win.print(), 500);
   }
 
-  function installApp() {
-    alert('To install SymptomAI, open your browser menu and select “Add to Home screen”.');
+  async function installApp() {
+    if (installPrompt) {
+      installPrompt.prompt();
+      await installPrompt.userChoice;
+      setInstallPrompt(null);
+    } else {
+      alert(
+        'To install SymptomAI, open your browser menu and select “Add to Home screen”.'
+      );
+    }
   }
 
   const whatsappLink = `https://wa.me/?text=${encodeURIComponent(reportText())}`;
@@ -557,6 +604,7 @@ Generated by SymptomAI.`;
 
             <div className="result-line"><b>Advice:</b> {result.advice}</div>
             <div className="result-line"><b>Summary:</b> {result.summary}</div>
+            <div className="result-line"><b>AI reasoning:</b> {result.reasoning}</div>
             <div className="result-line"><b>BMI:</b> {bmi || 'Not calculated'}</div>
             <div className="result-line">
               <b>Clinical reference:</b> NICE CKS, South African STG/EML principles, pharmacist referral guidance and emergency escalation screening.
@@ -569,7 +617,7 @@ Generated by SymptomAI.`;
 
               {result.routeType === 'doctor' && (
                 <>
-                  <a className="button" href={carelinkUrl} target="_blank">Book GP via Carelink</a>
+                  <a className="button" href={gpReferralUrl} target="_blank">Book GP via Carelink</a>
                   <a className="button gold" href={prescribingPharmacistUrl} target="_blank">Refer to Prescribing Pharmacist</a>
                 </>
               )}
@@ -672,11 +720,7 @@ Generated by SymptomAI.`;
                 </div>
               </div>
 
-              {bmi && (
-                <div className="section bmi-box">
-                  BMI: {bmi}
-                </div>
-              )}
+              {bmi && <div className="section bmi-box">BMI: {bmi}</div>}
 
               {form.gender === 'female' && (
                 <div className="section">
