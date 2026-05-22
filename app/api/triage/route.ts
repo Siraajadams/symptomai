@@ -1,25 +1,39 @@
-await fetch('/api/triage', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  body: JSON.stringify({
-    patient_name: form.name,
-    country: form.country,
-    phone: `${form.dialCode}${form.phone}`,
-    email: form.email,
-    dob: form.dob,
-    age: form.age,
-    gender: form.gender,
-    pregnant: form.gender === 'female' ? form.pregnant : 'no',
-    location: form.location,
-    symptom: form.symptom,
-    duration: form.duration,
-    red_flags: form.redFlags,
-    notes: form.notes,
-    outcome: decision.title,
-    recommendation: decision.recommendation,
-    clinical_reference: decision.reference,
-    safety_net: decision.safetyNet,
-  }),
-});
+import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+      return NextResponse.json(
+        { error: 'Missing Supabase environment variables' },
+        { status: 500 }
+      );
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    const { error } = await supabase.from('triage_submissions').insert({
+      patient_name: body.patient_name || '',
+      country: body.country || '',
+      phone: body.phone || '',
+      outcome: body.outcome || '',
+      data: body,
+    });
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error.message || 'Server error' },
+      { status: 500 }
+    );
+  }
+}
