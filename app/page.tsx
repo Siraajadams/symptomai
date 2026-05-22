@@ -4,39 +4,35 @@ import { useMemo, useState } from 'react';
 
 type FormState = {
   name: string;
-  dob: string;
-  gender: string;
-  country: string;
-  dialCode: string;
-  phone: string;
-  email: string;
-  location: string;
   age: string;
+  gender: string;
   pregnant: string;
-  symptoms: string[];
   duration: string;
+  symptoms: string[];
   redFlags: string[];
   notes: string;
-};
-
-type TriageInput = {
-  age: number;
-  gender: string;
-  pregnant: string;
-  symptoms: string[];
-  duration: string;
-  redFlags: string[];
 };
 
 type TriageResult = {
   level: string;
   destination: string;
-  advice: string;
   urgency: string;
+  advice: string;
   summary: string;
 };
 
-const symptomOptions = [
+const initialForm: FormState = {
+  name: '',
+  age: '',
+  gender: '',
+  pregnant: 'no',
+  duration: '',
+  symptoms: [],
+  redFlags: [],
+  notes: '',
+};
+
+const symptoms = [
   'Backache',
   'Bites',
   'Cold and Flu',
@@ -52,7 +48,7 @@ const symptomOptions = [
   'Urinary Tract Infection',
 ].sort();
 
-const redFlagOptions = [
+const redFlags = [
   'Chest pain',
   'Difficulty breathing',
   'Severe bleeding',
@@ -62,100 +58,68 @@ const redFlagOptions = [
   'Stroke symptoms',
 ];
 
-const initialForm: FormState = {
-  name: '',
-  dob: '',
-  gender: '',
-  country: 'South Africa',
-  dialCode: '+27',
-  phone: '',
-  email: '',
-  location: '',
-  age: '',
-  pregnant: 'no',
-  symptoms: [],
-  duration: '',
-  redFlags: [],
-  notes: '',
-};
-
-function decideTriage(data: TriageInput): TriageResult {
-  const emergencySymptoms = [
-    'Palpitations',
-    'Poisoning',
-  ];
-
-  const hasEmergencySymptom = data.symptoms.some((s) =>
-    emergencySymptoms.includes(s)
-  );
-
+function decideTriage(form: FormState): TriageResult {
   if (
-    data.redFlags.length > 0 ||
-    hasEmergencySymptom
+    form.redFlags.length > 0 ||
+    form.symptoms.includes('Poisoning') ||
+    form.symptoms.includes('Palpitations')
   ) {
     return {
       level: 'Emergency',
-      destination: 'Emergency Care',
+      destination: 'Emergency care',
       urgency: 'Immediate',
       advice:
-        'Please seek urgent emergency medical attention immediately.',
+        'Seek urgent emergency medical attention immediately. In South Africa, call Netcare 911 on 082 911 or local emergency services.',
       summary:
-        'Red flag symptoms identified requiring emergency escalation.',
+        'Red flag or high-risk symptoms were selected and require emergency escalation.',
     };
   }
 
   if (
-    data.symptoms.includes('Urinary Tract Infection') ||
-    data.symptoms.includes('Dental Pain') ||
-    data.symptoms.includes('Eye Infection') ||
-    data.symptoms.includes('Earache')
+    form.symptoms.includes('Dental Pain') ||
+    form.symptoms.includes('Earache') ||
+    form.symptoms.includes('Eye Infection') ||
+    form.symptoms.includes('Urinary Tract Infection') ||
+    form.duration === 'More than 3 days' ||
+    form.pregnant === 'yes'
   ) {
     return {
-      level: 'Doctor Review',
-      destination: 'Doctor / GP / Pharmacy Clinic',
-      urgency: 'Within 24 hours',
+      level: 'Doctor review',
+      destination: 'Doctor / GP / pharmacy clinic',
+      urgency: 'Today or within 24 hours',
       advice:
-        'A healthcare professional review is recommended.',
+        'A clinical assessment is recommended. Refer to a doctor, GP in pharmacy, or appropriate clinical practitioner.',
       summary:
-        'Symptoms suitable for GP or pharmacist-led clinical assessment.',
+        'The symptoms may require examination, prescribing, or further clinical assessment.',
     };
   }
 
   return {
-    level: 'Self Care',
-    destination: 'Pharmacy / Home Care',
+    level: 'Pharmacist care',
+    destination: 'Pharmacy care',
     urgency: 'Routine',
     advice:
-      'Supportive care and pharmacist guidance recommended.',
+      'Pharmacist-led care, OTC advice, monitoring, and safety-net counselling are appropriate.',
     summary:
-      'Symptoms appear suitable for pharmacy-led care and monitoring.',
+      'No urgent red flags were selected and the symptoms appear suitable for pharmacy-led care.',
   };
 }
 
 export default function Page() {
-  const [form, setForm] =
-    useState<FormState>(initialForm);
+  const [form, setForm] = useState<FormState>(initialForm);
+  const [result, setResult] = useState<TriageResult | null>(null);
 
-  const [result, setResult] =
-    useState<TriageResult | null>(null);
+  const selectedSymptoms = useMemo(() => form.symptoms.join(', '), [form.symptoms]);
 
-  function update<K extends keyof FormState>(
-    key: K,
-    value: FormState[K]
-  ) {
-    setForm((prev) => ({
-      ...prev,
-      [key]: value,
-    }));
+  function update<K extends keyof FormState>(key: K, value: FormState[K]) {
+    setForm((prev) => ({ ...prev, [key]: value }));
   }
 
   function toggleSymptom(symptom: string) {
     setForm((prev) => ({
       ...prev,
       symptoms: prev.symptoms.includes(symptom)
-        ? prev.symptoms.filter(
-            (s) => s !== symptom
-          )
+        ? prev.symptoms.filter((s) => s !== symptom)
         : [...prev.symptoms, symptom],
     }));
   }
@@ -164,289 +128,604 @@ export default function Page() {
     setForm((prev) => ({
       ...prev,
       redFlags: prev.redFlags.includes(flag)
-        ? prev.redFlags.filter(
-            (f) => f !== flag
-          )
+        ? prev.redFlags.filter((f) => f !== flag)
         : [...prev.redFlags, flag],
     }));
   }
 
   function submitTriage() {
-    const decision = decideTriage({
-      age: Number(form.age || 0),
-      gender: form.gender,
-      pregnant:
-        form.gender === 'female'
-          ? form.pregnant
-          : 'no',
-      symptoms: form.symptoms,
-      duration: form.duration,
-      redFlags: form.redFlags,
-    });
-
-    setResult(decision);
+    setResult(decideTriage(form));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  const alphabeticalSymptoms = useMemo(
-    () => symptomOptions,
-    []
-  );
+  function newTriage() {
+    setForm(initialForm);
+    setResult(null);
+  }
+
+  function reportText() {
+    return `SYMPTOMAI TRIAGE REPORT
+
+Patient: ${form.name || 'Not provided'}
+Age: ${form.age || 'Not provided'}
+Gender: ${form.gender || 'Not provided'}
+Pregnant: ${form.gender === 'female' ? form.pregnant : 'Not applicable'}
+
+Symptoms: ${selectedSymptoms || 'None selected'}
+Duration: ${form.duration || 'Not selected'}
+Red flags: ${form.redFlags.length ? form.redFlags.join(', ') : 'None selected'}
+Notes: ${form.notes || 'None'}
+
+Outcome: ${result?.level}
+Destination: ${result?.destination}
+Urgency: ${result?.urgency}
+Advice: ${result?.advice}
+Summary: ${result?.summary}
+
+Clinical references:
+NICE Clinical Knowledge Summaries, South African Primary Care/STG/EML principles, pharmacist referral guidance, WHO emergency escalation principles.
+
+Generated by SymptomAI.`;
+  }
+
+  function downloadReport() {
+    const blob = new Blob([reportText()], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `symptomai-report-${Date.now()}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const whatsappLink = `https://wa.me/?text=${encodeURIComponent(reportText())}`;
+  const emailLink = `mailto:?subject=SymptomAI Triage Report&body=${encodeURIComponent(reportText())}`;
 
   return (
-    <main className="min-h-screen bg-[#f7f9fc] p-6">
-      <div className="max-w-3xl mx-auto bg-white rounded-3xl shadow-xl p-6 space-y-6">
-        <div className="space-y-2">
-          <h1 className="text-4xl font-bold text-[#0f172a]">
-            SymptomAI
-          </h1>
+    <>
+      <style jsx global>{`
+        * {
+          box-sizing: border-box;
+        }
 
-          <p className="text-gray-600">
-            Right care. Right place. Right now.
-          </p>
+        html,
+        body {
+          margin: 0;
+          padding: 0;
+          background: #eef8f8;
+          color: #071b3d;
+          font-family: Arial, Helvetica, sans-serif;
+        }
 
-          <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
-            Emergency? Call Netcare 911:
-            <span className="font-bold ml-1">
-              082 911
-            </span>
-          </div>
-        </div>
+        body {
+          overflow-x: hidden;
+        }
 
-        <div className="grid md:grid-cols-2 gap-4">
-          <input
-            placeholder="Full name"
-            className="border rounded-xl p-3"
-            value={form.name}
-            onChange={(e) =>
-              update('name', e.target.value)
-            }
-          />
+        .page {
+          max-width: 860px;
+          margin: 0 auto;
+          padding: 30px 18px 80px;
+        }
 
-          <input
-            placeholder="Age"
-            className="border rounded-xl p-3"
-            value={form.age}
-            onChange={(e) =>
-              update('age', e.target.value)
-            }
-          />
+        .brand {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          margin-bottom: 28px;
+        }
 
-          <select
-            className="border rounded-xl p-3"
-            value={form.gender}
-            onChange={(e) =>
-              update('gender', e.target.value)
-            }
-          >
-            <option value="">
-              Select gender
-            </option>
-            <option value="male">
-              Male
-            </option>
-            <option value="female">
-              Female
-            </option>
-            <option value="other">
-              Other
-            </option>
-          </select>
+        .brand-icon {
+          width: 72px;
+          height: 72px;
+          border-radius: 22px;
+          background: #071b3d;
+          color: #1dd5c5;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 56px;
+          font-weight: 900;
+          flex-shrink: 0;
+        }
 
-          <select
-            className="border rounded-xl p-3"
-            value={form.duration}
-            onChange={(e) =>
-              update(
-                'duration',
-                e.target.value
-              )
-            }
-          >
-            <option value="">
-              Symptom duration
-            </option>
-            <option value="1 day">
-              1 day
-            </option>
-            <option value="2-3 days">
-              2–3 days
-            </option>
-            <option value="1 week">
-              1 week
-            </option>
-            <option value="More than 1 week">
-              More than 1 week
-            </option>
-          </select>
-        </div>
+        .brand-title {
+          font-size: 52px;
+          font-weight: 900;
+          line-height: 0.95;
+          letter-spacing: -2px;
+        }
 
-        {form.gender === 'female' && (
-          <div>
-            <label className="text-sm font-medium">
-              Pregnant?
-            </label>
+        .brand-subtitle {
+          color: #667785;
+          font-size: 18px;
+          font-weight: 800;
+          margin-top: 6px;
+        }
 
-            <select
-              className="border rounded-xl p-3 w-full mt-2"
-              value={form.pregnant}
-              onChange={(e) =>
-                update(
-                  'pregnant',
-                  e.target.value
-                )
-              }
-            >
-              <option value="no">
-                No
-              </option>
-              <option value="yes">
-                Yes
-              </option>
-            </select>
-          </div>
-        )}
+        .card {
+          background: #ffffff;
+          border-radius: 34px;
+          padding: 34px;
+          margin-bottom: 24px;
+          box-shadow: 0 18px 55px rgba(7, 27, 61, 0.08);
+          border: 1px solid rgba(7, 27, 61, 0.05);
+        }
 
-        <div className="space-y-3">
-          <label className="font-medium text-sm">
-            Select Symptoms
-          </label>
+        .hero h1 {
+          font-size: 56px;
+          line-height: 0.98;
+          margin: 0 0 20px;
+          font-weight: 900;
+          letter-spacing: -1.5px;
+        }
 
-          <div className="flex flex-wrap gap-2">
-            {alphabeticalSymptoms.map(
-              (symptom) => (
-                <button
-                  key={symptom}
-                  type="button"
-                  onClick={() =>
-                    toggleSymptom(symptom)
-                  }
-                  className={`px-3 py-2 rounded-full border text-sm transition ${
-                    form.symptoms.includes(
-                      symptom
-                    )
-                      ? 'bg-cyan-500 text-white border-cyan-500'
-                      : 'bg-white text-gray-700 border-gray-300'
-                  }`}
-                >
-                  {form.symptoms.includes(
-                    symptom
-                  )
-                    ? '✓ '
-                    : ''}
-                  {symptom}
-                </button>
-              )
-            )}
-          </div>
-        </div>
+        .hero p,
+        .card p {
+          color: #647480;
+          font-size: 20px;
+          line-height: 1.5;
+          margin: 0 0 22px;
+        }
 
-        <div className="space-y-3">
-          <label className="font-medium text-sm">
-            Red Flags
-          </label>
+        h2 {
+          font-size: 34px;
+          margin: 0 0 18px;
+          font-weight: 900;
+          letter-spacing: -0.5px;
+        }
 
-          <div className="flex flex-wrap gap-2">
-            {redFlagOptions.map((flag) => (
-              <button
-                key={flag}
-                type="button"
-                onClick={() =>
-                  toggleRedFlag(flag)
-                }
-                className={`px-3 py-2 rounded-full border text-sm transition ${
-                  form.redFlags.includes(flag)
-                    ? 'bg-red-500 text-white border-red-500'
-                    : 'bg-white text-gray-700 border-gray-300'
-                }`}
-              >
-                {flag}
-              </button>
-            ))}
-          </div>
-        </div>
+        .alert {
+          background: #fff3f3;
+          border: 2px solid #ffd1d1;
+          color: #8a1f1f;
+          border-radius: 22px;
+          padding: 18px;
+          margin-bottom: 22px;
+          font-weight: 800;
+        }
 
-        <textarea
-          placeholder="Additional notes"
-          className="border rounded-xl p-3 w-full min-h-[120px]"
-          value={form.notes}
-          onChange={(e) =>
-            update('notes', e.target.value)
+        .chat {
+          background: #f6fbfb;
+          border: 1px solid #dceeee;
+          border-radius: 24px;
+          padding: 18px;
+          margin-bottom: 20px;
+          color: #61727f;
+          font-size: 18px;
+          line-height: 1.5;
+        }
+
+        .chat strong {
+          color: #071b3d;
+          display: block;
+          margin-bottom: 5px;
+        }
+
+        .grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 16px;
+        }
+
+        label {
+          display: block;
+          font-size: 17px;
+          font-weight: 900;
+          margin-bottom: 8px;
+        }
+
+        input,
+        select,
+        textarea {
+          width: 100%;
+          border: 2px solid #dfe9ea;
+          border-radius: 18px;
+          padding: 17px;
+          font-size: 17px;
+          outline: none;
+          color: #071b3d;
+          background: #ffffff;
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+          border-color: #1dcfc1;
+          box-shadow: 0 0 0 4px rgba(29, 207, 193, 0.14);
+        }
+
+        textarea {
+          min-height: 110px;
+          resize: vertical;
+        }
+
+        .section {
+          margin-top: 28px;
+        }
+
+        .chips {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 12px;
+        }
+
+        .chip {
+          border: 2px solid #dfe9ea;
+          background: white;
+          color: #071b3d;
+          border-radius: 18px;
+          padding: 16px;
+          font-size: 16px;
+          font-weight: 900;
+          text-align: left;
+          cursor: pointer;
+        }
+
+        .chip.active {
+          border-color: #1dcfc1;
+          background: #e9fbf9;
+          color: #071b3d;
+        }
+
+        .chip.red.active {
+          border-color: #d92d20;
+          background: #fff1f1;
+          color: #8a1f1f;
+        }
+
+        .button-row {
+          display: flex;
+          gap: 12px;
+          flex-wrap: wrap;
+          margin-top: 22px;
+        }
+
+        .button {
+          border: none;
+          background: #1dcfc1;
+          color: #ffffff;
+          border-radius: 18px;
+          padding: 16px 24px;
+          font-size: 17px;
+          font-weight: 900;
+          cursor: pointer;
+          text-decoration: none;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .button.secondary {
+          background: #071b3d;
+        }
+
+        .button.danger {
+          background: #d92d20;
+        }
+
+        .result {
+          border-left: 8px solid #1dcfc1;
+        }
+
+        .result.emergency {
+          border-left-color: #d92d20;
+        }
+
+        .result.doctor {
+          border-left-color: #f79009;
+        }
+
+        .badge {
+          display: inline-block;
+          background: #eef8f8;
+          color: #071b3d;
+          padding: 10px 14px;
+          border-radius: 999px;
+          font-size: 12px;
+          font-weight: 900;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          margin-bottom: 18px;
+        }
+
+        .result h1 {
+          font-size: 48px;
+          line-height: 1;
+          margin: 0 0 18px;
+          font-weight: 900;
+        }
+
+        .result-line {
+          font-size: 18px;
+          color: #647480;
+          line-height: 1.5;
+          margin: 12px 0;
+        }
+
+        .result-line b {
+          color: #071b3d;
+        }
+
+        .references {
+          font-size: 14px;
+          color: #6b7b86;
+          line-height: 1.5;
+          border-top: 1px solid #e4eeee;
+          margin-top: 28px;
+          padding-top: 18px;
+        }
+
+        @media (max-width: 700px) {
+          .page {
+            padding: 22px 14px 60px;
           }
-        />
 
-        <button
-          onClick={submitTriage}
-          className="bg-cyan-500 hover:bg-cyan-600 transition text-white px-6 py-4 rounded-2xl font-semibold w-full"
-        >
-          Start AI Triage
-        </button>
+          .brand-icon {
+            width: 64px;
+            height: 64px;
+            font-size: 48px;
+          }
 
-        {result && (
-          <div className="bg-slate-50 border rounded-2xl p-6 space-y-3">
-            <h2 className="text-2xl font-bold">
-              Triage Result
-            </h2>
+          .brand-title {
+            font-size: 42px;
+          }
 
-            <div>
-              <span className="font-semibold">
-                Severity:
-              </span>{' '}
-              {result.level}
-            </div>
+          .brand-subtitle {
+            font-size: 16px;
+          }
 
-            <div>
-              <span className="font-semibold">
-                Destination:
-              </span>{' '}
-              {result.destination}
-            </div>
+          .card {
+            padding: 24px;
+            border-radius: 28px;
+          }
 
-            <div>
-              <span className="font-semibold">
-                Urgency:
-              </span>{' '}
-              {result.urgency}
-            </div>
+          .hero h1,
+          .result h1 {
+            font-size: 40px;
+          }
 
-            <div>
-              <span className="font-semibold">
-                Advice:
-              </span>{' '}
-              {result.advice}
-            </div>
+          h2 {
+            font-size: 28px;
+          }
 
-            <div>
-              <span className="font-semibold">
-                Summary:
-              </span>{' '}
-              {result.summary}
-            </div>
+          .grid {
+            grid-template-columns: 1fr;
+          }
 
-            <div className="flex flex-wrap gap-3 pt-4">
-              <button className="bg-green-500 text-white px-4 py-2 rounded-xl">
-                WhatsApp Report
-              </button>
+          .chips {
+            grid-template-columns: 1fr;
+          }
 
-              <button className="bg-blue-500 text-white px-4 py-2 rounded-xl">
-                Email Report
-              </button>
+          .button {
+            width: 100%;
+          }
 
-              <button className="bg-slate-800 text-white px-4 py-2 rounded-xl">
-                Download PDF
-              </button>
-            </div>
+          .hero p,
+          .card p {
+            font-size: 18px;
+          }
+        }
+      `}</style>
+
+      <main className="page">
+        <div className="brand">
+          <div className="brand-icon">+</div>
+          <div>
+            <div className="brand-title">SymptomAI</div>
+            <div className="brand-subtitle">Right care. Right place. Right now.</div>
           </div>
-        )}
-
-        <div className="border-t pt-4 text-xs text-gray-500 leading-relaxed">
-          Clinical guidance references:
-          NICE Guidelines, South African
-          Primary Care Guidelines, WHO
-          symptom escalation guidance,
-          Pharmacy First pathways, emergency
-          escalation screening.
         </div>
-      </div>
-    </main>
+
+        {result ? (
+          <section
+            className={`card result ${
+              result.level === 'Emergency'
+                ? 'emergency'
+                : result.level === 'Doctor review'
+                ? 'doctor'
+                : ''
+            }`}
+          >
+            <span className="badge">{result.level}</span>
+            <h1>{result.destination}</h1>
+
+            <div className="result-line">
+              <b>Urgency:</b> {result.urgency}
+            </div>
+
+            <div className="result-line">
+              <b>Advice:</b> {result.advice}
+            </div>
+
+            <div className="result-line">
+              <b>Summary:</b> {result.summary}
+            </div>
+
+            <div className="result-line">
+              <b>Clinical reference:</b> NICE Clinical Knowledge Summaries, South African
+              Primary Care/STG/EML principles, pharmacist referral guidance and emergency
+              escalation screening.
+            </div>
+
+            <div className="button-row">
+              <a className="button secondary" href={whatsappLink} target="_blank">
+                WhatsApp report
+              </a>
+              <a className="button secondary" href={emailLink}>
+                Email report
+              </a>
+              <button className="button secondary" onClick={downloadReport}>
+                Download report
+              </button>
+              <button className="button" onClick={newTriage}>
+                New triage
+              </button>
+            </div>
+          </section>
+        ) : (
+          <>
+            <section className="card hero">
+              <h1>60-second pharmacy triage</h1>
+              <p>
+                Capture symptoms, identify red flags, and route patients to emergency care,
+                doctor review, pharmacist care, or self-care.
+              </p>
+
+              <div className="alert">
+                Emergency in South Africa? Call Netcare 911: 082 911
+              </div>
+
+              <a className="button" href="#triage">
+                Start triage
+              </a>
+            </section>
+
+            <section className="card">
+              <h2>Built for pharmacies</h2>
+              <p>
+                Interactive symptom selection, red-flag screening, clinical references,
+                WhatsApp summaries, email reports, and downloadable triage notes.
+              </p>
+            </section>
+
+            <section id="triage" className="card">
+              <div className="chat">
+                <strong>SymptomAI</strong>
+                Let’s complete a quick pharmacy triage assessment.
+              </div>
+
+              <h2>Patient details</h2>
+
+              <div className="grid">
+                <div>
+                  <label>Full name</label>
+                  <input
+                    value={form.name}
+                    onChange={(e) => update('name', e.target.value)}
+                    placeholder="Patient name"
+                  />
+                </div>
+
+                <div>
+                  <label>Age</label>
+                  <input
+                    value={form.age}
+                    onChange={(e) => update('age', e.target.value)}
+                    placeholder="Age"
+                  />
+                </div>
+
+                <div>
+                  <label>Gender</label>
+                  <select
+                    value={form.gender}
+                    onChange={(e) => update('gender', e.target.value)}
+                  >
+                    <option value="">Select gender</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="other">Other / prefer not to say</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label>Duration</label>
+                  <select
+                    value={form.duration}
+                    onChange={(e) => update('duration', e.target.value)}
+                  >
+                    <option value="">Select duration</option>
+                    <option value="Less than 24 hours">Less than 24 hours</option>
+                    <option value="Less than 3 days">Less than 3 days</option>
+                    <option value="More than 3 days">More than 3 days</option>
+                    <option value="Sudden or worsening">Sudden or worsening</option>
+                  </select>
+                </div>
+              </div>
+
+              {form.gender === 'female' && (
+                <div className="section">
+                  <label>Pregnant?</label>
+                  <select
+                    value={form.pregnant}
+                    onChange={(e) => update('pregnant', e.target.value)}
+                  >
+                    <option value="no">No</option>
+                    <option value="yes">Yes</option>
+                    <option value="unsure">Unsure</option>
+                  </select>
+                </div>
+              )}
+
+              <div className="section">
+                <div className="chat">
+                  <strong>SymptomAI</strong>
+                  Select one or more symptoms from the alphabetical list.
+                </div>
+
+                <h2>Symptoms</h2>
+
+                <div className="chips">
+                  {symptoms.map((symptom) => (
+                    <button
+                      key={symptom}
+                      className={`chip ${form.symptoms.includes(symptom) ? 'active' : ''}`}
+                      onClick={() => toggleSymptom(symptom)}
+                      type="button"
+                    >
+                      {form.symptoms.includes(symptom) ? '✓ ' : ''}
+                      {symptom}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="section">
+                <div className="chat">
+                  <strong>SymptomAI</strong>
+                  Now check for red flags. If unsure, select it and refer upwards.
+                </div>
+
+                <h2>Red flags</h2>
+
+                <div className="chips">
+                  {redFlags.map((flag) => (
+                    <button
+                      key={flag}
+                      className={`chip red ${form.redFlags.includes(flag) ? 'active' : ''}`}
+                      onClick={() => toggleRedFlag(flag)}
+                      type="button"
+                    >
+                      {form.redFlags.includes(flag) ? '✓ ' : ''}
+                      {flag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="section">
+                <label>Pharmacist notes</label>
+                <textarea
+                  value={form.notes}
+                  onChange={(e) => update('notes', e.target.value)}
+                  placeholder="Short pharmacist note"
+                />
+              </div>
+
+              <button className="button" onClick={submitTriage}>
+                Get triage recommendation
+              </button>
+
+              <div className="references">
+                Clinical guidance references: NICE Clinical Knowledge Summaries, South
+                African Primary Care/STG/EML principles, pharmacist referral guidance,
+                WHO emergency escalation principles, and pharmacy minor ailment triage
+                pathways.
+              </div>
+            </section>
+          </>
+        )}
+      </main>
+    </>
   );
 }
