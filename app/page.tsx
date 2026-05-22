@@ -14,7 +14,7 @@ type FormState = {
   location: string;
   age: string;
   pregnant: string;
-  symptom: string;
+  symptoms: string[];
   duration: string;
   redFlags: string[];
   notes: string;
@@ -45,7 +45,7 @@ const initialForm: FormState = {
   location: '',
   age: '',
   pregnant: 'no',
-  symptom: '',
+  symptoms: '',
   duration: 'less_than_3_days',
   redFlags: [],
   notes: '',
