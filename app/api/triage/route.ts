@@ -1,1 +1,25 @@
-
+await fetch('/api/triage', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    patient_name: form.name,
+    country: form.country,
+    phone: `${form.dialCode}${form.phone}`,
+    email: form.email,
+    dob: form.dob,
+    age: form.age,
+    gender: form.gender,
+    pregnant: form.gender === 'female' ? form.pregnant : 'no',
+    location: form.location,
+    symptom: form.symptom,
+    duration: form.duration,
+    red_flags: form.redFlags,
+    notes: form.notes,
+    outcome: decision.title,
+    recommendation: decision.recommendation,
+    clinical_reference: decision.reference,
+    safety_net: decision.safetyNet,
+  }),
+});
