@@ -115,7 +115,7 @@ export default function Home() {
     const decision = decideTriage({
       age: Number(form.age || 0),
       pregnant: form.gender === 'female' ? form.pregnant : 'no',
-      symptom: form.symptom,
+      symptoms: form.symptoms,
       duration: form.duration,
       redFlags: form.redFlags,
     });
