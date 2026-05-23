@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { supabase } from "../lib/supabaseClient";
+import { supabase } from "@/app/lib/supabaseClient";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -15,39 +15,97 @@ export default function LoginPage() {
       },
     });
 
-    if (error) setMessage(error.message);
-    else setMessage("Check your email for the login link.");
+    if (error) {
+      setMessage(error.message);
+    } else {
+      setMessage("Check your email for the login link.");
+    }
   }
 
   return (
-    <main style={{ padding: 30, fontFamily: "Arial" }}>
-      <h1>SymptomAI Login</h1>
-      <p>Enter your email to receive a secure login link.</p>
-
-      <input
-        style={{ padding: 14, width: "100%", maxWidth: 400 }}
-        placeholder="Email address"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-      />
-
-      <br /><br />
-
-      <button
-        onClick={login}
+    <main
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        background: "#f5f7fb",
+        padding: "20px",
+      }}
+    >
+      <div
         style={{
-          padding: "14px 24px",
-          background: "#16b8aa",
-          color: "white",
-          border: "none",
-          borderRadius: 12,
-          fontWeight: 700,
+          background: "white",
+          padding: "40px",
+          borderRadius: "20px",
+          width: "100%",
+          maxWidth: "400px",
+          boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
         }}
       >
-        Send login link
-      </button>
+        <h1
+          style={{
+            fontSize: "32px",
+            fontWeight: "700",
+            marginBottom: "10px",
+          }}
+        >
+          SymptomAI Login
+        </h1>
 
-      <p>{message}</p>
+        <p
+          style={{
+            color: "#666",
+            marginBottom: "25px",
+          }}
+        >
+          Secure pharmacist & patient login
+        </p>
+
+        <input
+          type="email"
+          placeholder="Enter your email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          style={{
+            width: "100%",
+            padding: "14px",
+            borderRadius: "12px",
+            border: "1px solid #ddd",
+            marginBottom: "20px",
+            fontSize: "16px",
+          }}
+        />
+
+        <button
+          onClick={login}
+          style={{
+            width: "100%",
+            padding: "14px",
+            borderRadius: "12px",
+            border: "none",
+            background: "#0f172a",
+            color: "white",
+            fontSize: "16px",
+            fontWeight: "600",
+            cursor: "pointer",
+          }}
+        >
+          Send Login Link
+        </button>
+
+        {message && (
+          <p
+            style={{
+              marginTop: "20px",
+              color: "#0f172a",
+              fontSize: "14px",
+            }}
+          >
+            {message}
+          </p>
+        )}
+      </div>
     </main>
   );
 }
