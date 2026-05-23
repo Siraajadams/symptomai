@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-
+import { supabase } from "./lib/supabaseClient";
 type FormState = {
   name: string;
   age: string;
@@ -199,10 +199,79 @@ export default function Page() {
     }));
   }
 
-  function submitTriage() {
-    setResult(decideTriage(form));
-    window.scrollTo({ top: 0, behavior: "smooth" });
+ async function saveTriageToSupabase(
+  decision: TriageResult
+) {
+  const { data: userData } =
+    await supabase.auth.getUser();
+
+  if (!userData.user) {
+    alert(
+      "Triage completed, but not saved. Please create a profile/login first."
+    );
+    return;
   }
+
+  const { error } = await supabase
+    .from("triage_records")
+    .insert({
+      user_id: userData.user.id,
+
+      patient_name: form.name,
+      age: form.age,
+      gender: form.gender,
+
+      pregnant:
+        form.gender === "female"
+          ? form.pregnant
+          : "Not applicable",
+
+      country: form.country,
+      city: form.city,
+
+      height_cm: form.heightCm,
+      weight_kg: form.weightKg,
+      bmi: bmi,
+
+      symptoms: form.symptoms,
+      red_flags: form.redFlags,
+
+      duration: form.duration,
+      notes: form.notes,
+
+      outcome_level: decision.level,
+      outcome_destination:
+        decision.destination,
+
+      urgency: decision.urgency,
+      advice: decision.advice,
+
+      ai_reasoning:
+        decision.reasoning,
+    });
+
+  if (error) {
+    console.error(error);
+    alert(
+      "Could not save triage history."
+    );
+  }
+}
+
+async function submitTriage() {
+  const decision = decideTriage(form);
+
+  await saveTriageToSupabase(
+    decision
+  );
+
+  setResult(decision);
+
+  window.scrollTo({
+    top: 0,
+    behavior: "smooth",
+  });
+}
 
   function newTriage() {
     setForm(initialForm);
