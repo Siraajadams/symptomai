@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from "react";
 
 type FormState = {
   name: string;
@@ -24,77 +24,77 @@ type TriageResult = {
   advice: string;
   summary: string;
   reasoning: string;
-  routeType: 'emergency' | 'doctor' | 'pharmacist';
+  routeType: "emergency" | "doctor" | "pharmacist";
 };
 
 const initialForm: FormState = {
-  name: '',
-  age: '',
-  gender: '',
-  pregnant: 'no',
-  country: 'South Africa',
-  city: '',
-  heightCm: '',
-  weightKg: '',
-  duration: '',
+  name: "",
+  age: "",
+  gender: "",
+  pregnant: "no",
+  country: "South Africa",
+  city: "",
+  heightCm: "",
+  weightKg: "",
+  duration: "",
   symptoms: [],
   redFlags: [],
-  notes: '',
+  notes: "",
 };
 
 const symptoms = [
-  'Backache',
-  'Bites',
-  'Blurred Vision',
-  'Cold and Flu',
-  'Constipation',
-  'Dental Pain',
-  'Diarrhoea',
-  'Earache',
-  'Eye Infection',
-  'Fever',
-  'Gastric Ulcer',
-  'Hayfever',
-  'Headache',
-  'Heartburn',
-  'Joint Pain',
-  'Menstrual Pain',
-  'Migraine',
-  'Muscle Pain',
-  'Palpitations',
-  'Piles',
-  'Poisoning',
-  'Rashes',
-  'Red Eyes',
-  'Sinus',
-  'Stomach Cramps',
-  'Thrush',
-  'Urinary Tract Infection',
+  "Backache",
+  "Bites",
+  "Blurred Vision",
+  "Cold and Flu",
+  "Constipation",
+  "Dental Pain",
+  "Diarrhoea",
+  "Earache",
+  "Eye Infection",
+  "Fever",
+  "Gastric Ulcer",
+  "Hayfever",
+  "Headache",
+  "Heartburn",
+  "Joint Pain",
+  "Menstrual Pain",
+  "Migraine",
+  "Muscle Pain",
+  "Palpitations",
+  "Piles",
+  "Poisoning",
+  "Rashes",
+  "Red Eyes",
+  "Sinus",
+  "Stomach Cramps",
+  "Thrush",
+  "Urinary Tract Infection",
 ].sort();
 
 const redFlags = [
-  'Chest pain',
-  'Difficulty breathing',
-  'Severe bleeding',
-  'Confusion',
-  'Loss of consciousness',
-  'Severe dehydration',
-  'Stroke symptoms',
-  'Sudden blurred vision',
-  'Severe headache / worst headache',
+  "Chest pain",
+  "Difficulty breathing",
+  "Severe bleeding",
+  "Confusion",
+  "Loss of consciousness",
+  "Severe dehydration",
+  "Stroke symptoms",
+  "Sudden blurred vision",
+  "Severe headache / worst headache",
 ];
 
 function decideTriage(form: FormState): TriageResult {
-  const emergencySymptoms = ['Poisoning', 'Palpitations', 'Blurred Vision'];
+  const emergencySymptoms = ["Poisoning", "Palpitations", "Blurred Vision"];
   const doctorSymptoms = [
-    'Dental Pain',
-    'Earache',
-    'Eye Infection',
-    'Urinary Tract Infection',
-    'Fever',
-    'Migraine',
-    'Gastric Ulcer',
-    'Thrush',
+    "Dental Pain",
+    "Earache",
+    "Eye Infection",
+    "Urinary Tract Infection",
+    "Fever",
+    "Migraine",
+    "Gastric Ulcer",
+    "Thrush",
   ];
 
   if (
@@ -102,51 +102,51 @@ function decideTriage(form: FormState): TriageResult {
     form.symptoms.some((s) => emergencySymptoms.includes(s))
   ) {
     return {
-      level: 'Emergency',
-      destination: 'Emergency care',
-      urgency: 'Immediate',
+      level: "Emergency",
+      destination: "Emergency care",
+      urgency: "Immediate",
       advice:
-        'Seek urgent medical attention immediately. If in South Africa, call Netcare 911 on 082 911 or local emergency services.',
+        "Seek urgent medical attention immediately. If in South Africa, call Netcare 911 on 082 911 or local emergency services.",
       summary:
-        'Red flag or high-risk symptoms were selected and require urgent escalation.',
+        "Red flag or high-risk symptoms were selected and require urgent escalation.",
       reasoning:
-        'The triage engine detected emergency indicators such as red flags, possible poisoning, palpitations, sudden visual changes, breathing difficulty, chest pain, severe bleeding, confusion, or stroke-type symptoms. These should not be managed as routine pharmacy care.',
-      routeType: 'emergency',
+        "The triage engine detected emergency indicators such as red flags, possible poisoning, palpitations, sudden visual changes, breathing difficulty, chest pain, severe bleeding, confusion, or stroke-type symptoms. These should not be managed as routine pharmacy care.",
+      routeType: "emergency",
     };
   }
 
   if (
     form.symptoms.some((s) => doctorSymptoms.includes(s)) ||
-    form.duration === 'More than 3 days' ||
-    form.duration === 'Sudden or worsening' ||
-    form.pregnant === 'yes' ||
-    form.pregnant === 'unsure'
+    form.duration === "More than 3 days" ||
+    form.duration === "Sudden or worsening" ||
+    form.pregnant === "yes" ||
+    form.pregnant === "unsure"
   ) {
     return {
-      level: 'Doctor / Prescribing Pharmacist',
-      destination: 'GP or Prescribing Pharmacist',
-      urgency: 'Today or within 24 hours',
+      level: "Doctor / Prescribing Pharmacist",
+      destination: "GP or Prescribing Pharmacist",
+      urgency: "Today or within 24 hours",
       advice:
-        'A clinical assessment is recommended. Refer to a GP, doctor in pharmacy, or prescribing pharmacist.',
+        "A clinical assessment is recommended. Refer to a GP, doctor in pharmacy, or prescribing pharmacist.",
       summary:
-        'The symptoms may require examination, prescribing, or further clinical assessment.',
+        "The symptoms may require examination, prescribing, or further clinical assessment.",
       reasoning:
-        'The selected symptoms may require clinical examination, diagnosis confirmation, prescription-only treatment, or escalation based on duration, pregnancy status, fever, infection symptoms, urinary symptoms, eye symptoms, migraine, gastric ulcer symptoms, or thrush.',
-      routeType: 'doctor',
+        "The selected symptoms may require clinical examination, diagnosis confirmation, prescription-only treatment, or escalation based on duration, pregnancy status, fever, infection symptoms, urinary symptoms, eye symptoms, migraine, gastric ulcer symptoms, or thrush.",
+      routeType: "doctor",
     };
   }
 
   return {
-    level: 'Pharmacist care',
-    destination: 'Pharmacy care',
-    urgency: 'Routine',
+    level: "Pharmacist care",
+    destination: "Pharmacy care",
+    urgency: "Routine",
     advice:
-      'Pharmacist-led care, OTC advice, monitoring, and safety-net counselling are appropriate.',
+      "Pharmacist-led care, OTC advice, monitoring, and safety-net counselling are appropriate.",
     summary:
-      'No urgent red flags were selected and the symptoms appear suitable for pharmacy-led care.',
+      "No urgent red flags were selected and the symptoms appear suitable for pharmacy-led care.",
     reasoning:
-      'No emergency red flags were selected and the symptoms appear appropriate for pharmacist advice, OTC support, monitoring, and clear safety-net guidance.',
-    routeType: 'pharmacist',
+      "No emergency red flags were selected and the symptoms appear appropriate for pharmacist advice, OTC support, monitoring, and clear safety-net guidance.",
+    routeType: "pharmacist",
   };
 }
 
@@ -161,20 +161,19 @@ export default function Page() {
       setInstallPrompt(e);
     };
 
-    window.addEventListener('beforeinstallprompt', handler);
-
-    return () => window.removeEventListener('beforeinstallprompt', handler);
+    window.addEventListener("beforeinstallprompt", handler);
+    return () => window.removeEventListener("beforeinstallprompt", handler);
   }, []);
 
   const bmi = useMemo(() => {
     const h = Number(form.heightCm) / 100;
     const w = Number(form.weightKg);
-    if (!h || !w) return '';
+    if (!h || !w) return "";
     return (w / (h * h)).toFixed(1);
   }, [form.heightCm, form.weightKg]);
 
   const selectedSymptoms = useMemo(
-    () => form.symptoms.join(', '),
+    () => form.symptoms.join(", "),
     [form.symptoms]
   );
 
@@ -202,7 +201,7 @@ export default function Page() {
 
   function submitTriage() {
     setResult(decideTriage(form));
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function newTriage() {
@@ -217,7 +216,7 @@ export default function Page() {
 
     window.open(
       `https://www.google.com/maps/search/${encodeURIComponent(query)}`,
-      '_blank'
+      "_blank"
     );
   }
 
@@ -227,7 +226,7 @@ export default function Page() {
         const { latitude, longitude } = pos.coords;
         window.open(
           `https://www.google.com/maps/search/pharmacy/@${latitude},${longitude},14z`,
-          '_blank'
+          "_blank"
         );
       },
       () => pharmacyMapByCity()
@@ -235,33 +234,33 @@ export default function Page() {
   }
 
   const isUK =
-    form.country === 'England' ||
-    form.country === 'Wales' ||
-    form.country === 'Scotland';
+    form.country === "England" ||
+    form.country === "Wales" ||
+    form.country === "Scotland";
 
   const gpReferralUrl = isUK
-    ? 'https://nhs.carelink.digital'
-    : 'https://carelink.digital';
+    ? "https://nhs.carelink.digital"
+    : "https://carelink.digital";
 
   const prescribingPharmacistUrl = isUK
-    ? 'https://cpnbs.carelink.digital/home'
-    : 'https://carelink.digital';
+    ? "https://cpnbs.carelink.digital/home"
+    : "https://carelink.digital";
 
   function reportText() {
     return `SYMPTOMAI TRIAGE REPORT
 
-Patient: ${form.name || 'Not provided'}
-Age: ${form.age || 'Not provided'}
-Gender: ${form.gender || 'Not provided'}
-Pregnant: ${form.gender === 'female' ? form.pregnant : 'Not applicable'}
+Patient: ${form.name || "Not provided"}
+Age: ${form.age || "Not provided"}
+Gender: ${form.gender || "Not provided"}
+Pregnant: ${form.gender === "female" ? form.pregnant : "Not applicable"}
 Country: ${form.country}
-Town/City: ${form.city || 'Not provided'}
-BMI: ${bmi || 'Not calculated'}
+Town/City: ${form.city || "Not provided"}
+BMI: ${bmi || "Not calculated"}
 
-Symptoms: ${selectedSymptoms || 'None selected'}
-Duration: ${form.duration || 'Not selected'}
-Red flags: ${form.redFlags.length ? form.redFlags.join(', ') : 'None selected'}
-Notes: ${form.notes || 'None'}
+Symptoms: ${selectedSymptoms || "None selected"}
+Symptom duration: ${form.duration || "Not selected"}
+Red flags: ${form.redFlags.length ? form.redFlags.join(", ") : "None selected"}
+Notes: ${form.notes || "None"}
 
 Outcome: ${result?.level}
 Destination: ${result?.destination}
@@ -277,7 +276,7 @@ Generated by SymptomAI.`;
   }
 
   function downloadPDF() {
-    const win = window.open('', '_blank');
+    const win = window.open("", "_blank");
     if (!win) return;
 
     win.document.write(`
@@ -309,20 +308,25 @@ Generated by SymptomAI.`;
       setInstallPrompt(null);
     } else {
       alert(
-        'To install SymptomAI, open your browser menu and select “Add to Home screen”.'
+        "To install SymptomAI, open your browser menu and select “Add to Home screen”."
       );
     }
   }
 
   const whatsappLink = `https://wa.me/?text=${encodeURIComponent(reportText())}`;
-  const emailLink = `mailto:?subject=SymptomAI Triage Report&body=${encodeURIComponent(reportText())}`;
+  const emailLink = `mailto:?subject=SymptomAI Triage Report&body=${encodeURIComponent(
+    reportText()
+  )}`;
 
   return (
     <>
       <style jsx global>{`
-        * { box-sizing: border-box; }
+        * {
+          box-sizing: border-box;
+        }
 
-        html, body {
+        html,
+        body {
           margin: 0;
           background: linear-gradient(135deg, #eefafa 0%, #f7fbff 100%);
           color: #071b3d;
@@ -369,15 +373,16 @@ Generated by SymptomAI.`;
         }
 
         .card {
-          background: rgba(255,255,255,.94);
+          background: rgba(255, 255, 255, 0.94);
           border-radius: 32px;
           padding: 30px;
           margin-bottom: 22px;
-          box-shadow: 0 18px 55px rgba(7,27,61,.09);
-          border: 1px solid rgba(7,27,61,.06);
+          box-shadow: 0 18px 55px rgba(7, 27, 61, 0.09);
+          border: 1px solid rgba(7, 27, 61, 0.06);
         }
 
-        .hero h1, .result h1 {
+        .hero h1,
+        .result h1 {
           font-size: 50px;
           line-height: 1;
           margin: 0 0 18px;
@@ -427,7 +432,9 @@ Generated by SymptomAI.`;
           margin-bottom: 8px;
         }
 
-        input, select, textarea {
+        input,
+        select,
+        textarea {
           width: 100%;
           border: 2px solid #dfe9ea;
           border-radius: 18px;
@@ -443,9 +450,11 @@ Generated by SymptomAI.`;
           resize: vertical;
         }
 
-        input:focus, select:focus, textarea:focus {
+        input:focus,
+        select:focus,
+        textarea:focus {
           border-color: #1dcfc1;
-          box-shadow: 0 0 0 4px rgba(29,207,193,.14);
+          box-shadow: 0 0 0 4px rgba(29, 207, 193, 0.14);
         }
 
         .section {
@@ -468,12 +477,6 @@ Generated by SymptomAI.`;
           font-weight: 900;
           text-align: left;
           cursor: pointer;
-          transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
-        }
-
-        .chip:hover {
-          transform: translateY(-3px);
-          box-shadow: 0 12px 28px rgba(7,27,61,.08);
         }
 
         .chip.active {
@@ -509,16 +512,35 @@ Generated by SymptomAI.`;
           justify-content: center;
         }
 
-        .button.secondary { background: #071b3d; }
-        .button.danger { background: #d92d20; }
-        .button.gold { background: #f79009; }
+        .button.secondary {
+          background: #071b3d;
+        }
+
+        .button.outline {
+          background: #ffffff;
+          color: #071b3d;
+          border: 2px solid #071b3d;
+        }
+
+        .button.danger {
+          background: #d92d20;
+        }
+
+        .button.gold {
+          background: #f79009;
+        }
 
         .result {
           border-left: 9px solid #1dcfc1;
         }
 
-        .result.emergency { border-left-color: #d92d20; }
-        .result.doctor { border-left-color: #f79009; }
+        .result.emergency {
+          border-left-color: #d92d20;
+        }
+
+        .result.doctor {
+          border-left-color: #f79009;
+        }
 
         .badge {
           display: inline-block;
@@ -528,7 +550,7 @@ Generated by SymptomAI.`;
           border-radius: 999px;
           font-size: 12px;
           font-weight: 900;
-          letter-spacing: .08em;
+          letter-spacing: 0.08em;
           text-transform: uppercase;
           margin-bottom: 18px;
         }
@@ -541,9 +563,20 @@ Generated by SymptomAI.`;
           margin-bottom: 16px;
         }
 
-        .severity.emergency { background: #fff1f1; color: #b42318; }
-        .severity.doctor { background: #fff7e6; color: #b54708; }
-        .severity.pharmacist { background: #e9fbf9; color: #067367; }
+        .severity.emergency {
+          background: #fff1f1;
+          color: #b42318;
+        }
+
+        .severity.doctor {
+          background: #fff7e6;
+          color: #b54708;
+        }
+
+        .severity.pharmacist {
+          background: #e9fbf9;
+          color: #067367;
+        }
 
         .result-line {
           font-size: 18px;
@@ -552,7 +585,9 @@ Generated by SymptomAI.`;
           margin: 12px 0;
         }
 
-        .result-line b { color: #071b3d; }
+        .result-line b {
+          color: #071b3d;
+        }
 
         .references {
           font-size: 14px;
@@ -572,15 +607,46 @@ Generated by SymptomAI.`;
         }
 
         @media (max-width: 700px) {
-          .page { padding: 22px 14px 60px; }
-          .brand-icon { width: 62px; height: 62px; font-size: 46px; }
-          .brand-title { font-size: 40px; }
-          .card { padding: 24px; border-radius: 28px; }
-          .hero h1, .result h1 { font-size: 38px; }
-          h2 { font-size: 28px; }
-          .grid, .chips { grid-template-columns: 1fr; }
-          .button { width: 100%; }
-          p { font-size: 17px; }
+          .page {
+            padding: 22px 14px 60px;
+          }
+
+          .brand-icon {
+            width: 62px;
+            height: 62px;
+            font-size: 46px;
+          }
+
+          .brand-title {
+            font-size: 40px;
+          }
+
+          .card {
+            padding: 24px;
+            border-radius: 28px;
+          }
+
+          .hero h1,
+          .result h1 {
+            font-size: 38px;
+          }
+
+          h2 {
+            font-size: 28px;
+          }
+
+          .grid,
+          .chips {
+            grid-template-columns: 1fr;
+          }
+
+          .button {
+            width: 100%;
+          }
+
+          p {
+            font-size: 17px;
+          }
         }
       `}</style>
 
@@ -589,45 +655,90 @@ Generated by SymptomAI.`;
           <div className="brand-icon">+</div>
           <div>
             <div className="brand-title">SymptomAI</div>
-            <div className="brand-subtitle">Right care. Right place. Right now.</div>
+            <div className="brand-subtitle">
+              Right care. Right place. Right now.
+            </div>
           </div>
         </div>
 
         {result ? (
-          <section className={`card result ${result.routeType === 'emergency' ? 'emergency' : result.routeType === 'doctor' ? 'doctor' : ''}`}>
+          <section
+            className={`card result ${
+              result.routeType === "emergency"
+                ? "emergency"
+                : result.routeType === "doctor"
+                ? "doctor"
+                : ""
+            }`}
+          >
             <span className="badge">{result.level}</span>
-            <div className={`severity ${result.routeType === 'emergency' ? 'emergency' : result.routeType === 'doctor' ? 'doctor' : 'pharmacist'}`}>
+            <div
+              className={`severity ${
+                result.routeType === "emergency"
+                  ? "emergency"
+                  : result.routeType === "doctor"
+                  ? "doctor"
+                  : "pharmacist"
+              }`}
+            >
               {result.urgency}
             </div>
 
             <h1>{result.destination}</h1>
 
-            <div className="result-line"><b>Advice:</b> {result.advice}</div>
-            <div className="result-line"><b>Summary:</b> {result.summary}</div>
-            <div className="result-line"><b>AI reasoning:</b> {result.reasoning}</div>
-            <div className="result-line"><b>BMI:</b> {bmi || 'Not calculated'}</div>
             <div className="result-line">
-              <b>Clinical reference:</b> NICE CKS, South African STG/EML principles, pharmacist referral guidance and emergency escalation screening.
+              <b>Advice:</b> {result.advice}
+            </div>
+            <div className="result-line">
+              <b>Summary:</b> {result.summary}
+            </div>
+            <div className="result-line">
+              <b>AI reasoning:</b> {result.reasoning}
+            </div>
+            <div className="result-line">
+              <b>BMI:</b> {bmi || "Not calculated"}
             </div>
 
             <div className="button-row">
-              {result.routeType === 'emergency' && (
-                <a className="button danger" href="tel:082911">Call Netcare 911</a>
+              {result.routeType === "emergency" && (
+                <a className="button danger" href="tel:082911">
+                  Call Netcare 911
+                </a>
               )}
 
-              {result.routeType === 'doctor' && (
+              {result.routeType === "doctor" && (
                 <>
-                  <a className="button" href={gpReferralUrl} target="_blank">Book GP via Carelink</a>
-                  <a className="button gold" href={prescribingPharmacistUrl} target="_blank">Refer to Prescribing Pharmacist</a>
+                  <a className="button" href={gpReferralUrl} target="_blank">
+                    Book GP via Carelink
+                  </a>
+                  <a
+                    className="button gold"
+                    href={prescribingPharmacistUrl}
+                    target="_blank"
+                  >
+                    Refer to Prescribing Pharmacist
+                  </a>
                 </>
               )}
 
-              <button className="button" onClick={pharmacyMapByCity}>Find pharmacy by city</button>
-              <button className="button secondary" onClick={pharmacyMapByLocation}>Use current location</button>
-              <a className="button secondary" href={whatsappLink} target="_blank">WhatsApp report</a>
-              <a className="button secondary" href={emailLink}>Email report</a>
-              <button className="button secondary" onClick={downloadPDF}>Download PDF</button>
-              <button className="button" onClick={newTriage}>New triage</button>
+              <button className="button" onClick={pharmacyMapByCity}>
+                Find pharmacy by city
+              </button>
+              <button className="button secondary" onClick={pharmacyMapByLocation}>
+                Use current location
+              </button>
+              <a className="button secondary" href={whatsappLink} target="_blank">
+                WhatsApp report
+              </a>
+              <a className="button secondary" href={emailLink}>
+                Email report
+              </a>
+              <button className="button secondary" onClick={downloadPDF}>
+                Download PDF
+              </button>
+              <button className="button" onClick={newTriage}>
+                New triage
+              </button>
             </div>
           </section>
         ) : (
@@ -635,21 +746,33 @@ Generated by SymptomAI.`;
             <section className="card hero">
               <h1>60-second pharmacy triage</h1>
               <p>
-                Capture symptoms, identify red flags, and route patients to emergency care,
-                GP review, prescribing pharmacist care, or pharmacy-led self-care.
+                Capture symptoms, identify red flags, and route patients to
+                emergency care, GP review, prescribing pharmacist care, or
+                pharmacy-led self-care.
               </p>
 
               <div className="button-row">
-                <a className="button" href="#triage">Start triage</a>
-                <button className="button secondary" onClick={installApp}>Install web app</button>
+                <a className="button" href="#triage">
+                  Start triage
+                </a>
+                <a className="button outline" href="/login">
+                  Create Profile / Login
+                </a>
+                <a className="button secondary" href="/history">
+                  View Patient History
+                </a>
+                <button className="button secondary" onClick={installApp}>
+                  Install web app
+                </button>
               </div>
             </section>
 
             <section className="card">
               <h2>Built for pharmacies</h2>
               <p>
-                Interactive symptom selection, BMI capture, red-flag screening, clinical references,
-                WhatsApp summaries, PDF reports, GP routing, prescribing pharmacist referral and nearest pharmacy search.
+                Interactive symptom selection, BMI capture, red-flag screening,
+                clinical references, WhatsApp summaries, PDF reports, GP routing,
+                prescribing pharmacist referral and nearest pharmacy search.
               </p>
             </section>
 
@@ -664,17 +787,28 @@ Generated by SymptomAI.`;
               <div className="grid">
                 <div>
                   <label>Full name</label>
-                  <input value={form.name} onChange={(e) => update('name', e.target.value)} placeholder="Patient name" />
+                  <input
+                    value={form.name}
+                    onChange={(e) => update("name", e.target.value)}
+                    placeholder="Patient name"
+                  />
                 </div>
 
                 <div>
                   <label>Age</label>
-                  <input value={form.age} onChange={(e) => update('age', e.target.value)} placeholder="Age" />
+                  <input
+                    value={form.age}
+                    onChange={(e) => update("age", e.target.value)}
+                    placeholder="Age"
+                  />
                 </div>
 
                 <div>
                   <label>Country</label>
-                  <select value={form.country} onChange={(e) => update('country', e.target.value)}>
+                  <select
+                    value={form.country}
+                    onChange={(e) => update("country", e.target.value)}
+                  >
                     <option value="South Africa">South Africa</option>
                     <option value="England">England</option>
                     <option value="Wales">Wales</option>
@@ -685,12 +819,19 @@ Generated by SymptomAI.`;
 
                 <div>
                   <label>Town / city</label>
-                  <input value={form.city} onChange={(e) => update('city', e.target.value)} placeholder="Cape Town, London, Auckland..." />
+                  <input
+                    value={form.city}
+                    onChange={(e) => update("city", e.target.value)}
+                    placeholder="Cape Town, London, Auckland..."
+                  />
                 </div>
 
                 <div>
                   <label>Gender</label>
-                  <select value={form.gender} onChange={(e) => update('gender', e.target.value)}>
+                  <select
+                    value={form.gender}
+                    onChange={(e) => update("gender", e.target.value)}
+                  >
                     <option value="">Select gender</option>
                     <option value="male">Male</option>
                     <option value="female">Female</option>
@@ -699,33 +840,51 @@ Generated by SymptomAI.`;
                 </div>
 
                 <div>
-                  <label>Duration</label>
-                  <select value={form.duration} onChange={(e) => update('duration', e.target.value)}>
-                    <option value="">Select duration</option>
-                    <option value="Less than 24 hours">Less than 24 hours</option>
-                    <option value="Less than 3 days">Less than 3 days</option>
-                    <option value="More than 3 days">More than 3 days</option>
-                    <option value="Sudden or worsening">Sudden or worsening</option>
-                  </select>
-                </div>
-
-                <div>
                   <label>Height cm</label>
-                  <input value={form.heightCm} onChange={(e) => update('heightCm', e.target.value)} placeholder="170" />
+                  <input
+                    value={form.heightCm}
+                    onChange={(e) => update("heightCm", e.target.value)}
+                    placeholder="170"
+                  />
                 </div>
 
                 <div>
                   <label>Weight kg</label>
-                  <input value={form.weightKg} onChange={(e) => update('weightKg', e.target.value)} placeholder="75" />
+                  <input
+                    value={form.weightKg}
+                    onChange={(e) => update("weightKg", e.target.value)}
+                    placeholder="75"
+                  />
+                </div>
+
+                <div>
+                  <label>Symptom duration</label>
+                  <select
+                    value={form.duration}
+                    onChange={(e) => update("duration", e.target.value)}
+                  >
+                    <option value="">Select symptom duration</option>
+                    <option value="Less than 24 hours">
+                      Less than 24 hours
+                    </option>
+                    <option value="Less than 3 days">Less than 3 days</option>
+                    <option value="More than 3 days">More than 3 days</option>
+                    <option value="Sudden or worsening">
+                      Sudden or worsening
+                    </option>
+                  </select>
                 </div>
               </div>
 
               {bmi && <div className="section bmi-box">BMI: {bmi}</div>}
 
-              {form.gender === 'female' && (
+              {form.gender === "female" && (
                 <div className="section">
                   <label>Pregnant?</label>
-                  <select value={form.pregnant} onChange={(e) => update('pregnant', e.target.value)}>
+                  <select
+                    value={form.pregnant}
+                    onChange={(e) => update("pregnant", e.target.value)}
+                  >
                     <option value="no">No</option>
                     <option value="yes">Yes</option>
                     <option value="unsure">Unsure</option>
@@ -745,11 +904,13 @@ Generated by SymptomAI.`;
                   {symptoms.map((symptom) => (
                     <button
                       key={symptom}
-                      className={`chip ${form.symptoms.includes(symptom) ? 'active' : ''}`}
+                      className={`chip ${
+                        form.symptoms.includes(symptom) ? "active" : ""
+                      }`}
                       onClick={() => toggleSymptom(symptom)}
                       type="button"
                     >
-                      {form.symptoms.includes(symptom) ? '✓ ' : ''}
+                      {form.symptoms.includes(symptom) ? "✓ " : ""}
                       {symptom}
                     </button>
                   ))}
@@ -768,11 +929,13 @@ Generated by SymptomAI.`;
                   {redFlags.map((flag) => (
                     <button
                       key={flag}
-                      className={`chip red ${form.redFlags.includes(flag) ? 'active' : ''}`}
+                      className={`chip red ${
+                        form.redFlags.includes(flag) ? "active" : ""
+                      }`}
                       onClick={() => toggleRedFlag(flag)}
                       type="button"
                     >
-                      {form.redFlags.includes(flag) ? '✓ ' : ''}
+                      {form.redFlags.includes(flag) ? "✓ " : ""}
                       {flag}
                     </button>
                   ))}
@@ -781,17 +944,33 @@ Generated by SymptomAI.`;
 
               <div className="section">
                 <label>Pharmacist notes</label>
-                <textarea value={form.notes} onChange={(e) => update('notes', e.target.value)} placeholder="Short pharmacist note" />
+                <textarea
+                  value={form.notes}
+                  onChange={(e) => update("notes", e.target.value)}
+                  placeholder="Short pharmacist note"
+                />
               </div>
 
               <div className="button-row">
-                <button className="button secondary" onClick={pharmacyMapByCity}>Find pharmacy by city</button>
-                <button className="button secondary" onClick={pharmacyMapByLocation}>Use current location</button>
-                <button className="button" onClick={submitTriage}>Get triage recommendation</button>
+                <button className="button secondary" onClick={pharmacyMapByCity}>
+                  Find pharmacy by city
+                </button>
+                <button
+                  className="button secondary"
+                  onClick={pharmacyMapByLocation}
+                >
+                  Use current location
+                </button>
+                <button className="button" onClick={submitTriage}>
+                  Get triage recommendation
+                </button>
               </div>
 
               <div className="references">
-                Clinical guidance references: NICE Clinical Knowledge Summaries, South African Primary Care/STG/EML principles, pharmacist referral guidance, WHO emergency escalation principles, and pharmacy minor ailment triage pathways.
+                Clinical guidance references: NICE Clinical Knowledge Summaries,
+                South African Primary Care/STG/EML principles, pharmacist referral
+                guidance, WHO emergency escalation principles, and pharmacy minor
+                ailment triage pathways.
               </div>
             </section>
           </>
