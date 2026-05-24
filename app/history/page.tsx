@@ -47,11 +47,46 @@ export default function HistoryPage() {
             marginBottom: 16,
           }}
         >
-          <h3>{r.patient_name || "Unnamed patient"}</h3>
-          <p><b>Symptoms:</b> {r.symptoms?.join(", ")}</p>
-          <p><b>Urgency:</b> {r.urgency}</p>
-          <p><b>Outcome:</b> {r.outcome_destination}</p>
-          <p><b>Date:</b> {new Date(r.created_at).toLocaleString()}</p>
+          <h3 style={{ marginBottom: 10 }}>
+  {new Date(r.created_at).toLocaleString()}
+</h3>
+
+<p>
+  <b>Symptoms:</b>{" "}
+  {Array.isArray(r.symptoms)
+    ? r.symptoms.join(", ")
+    : "No symptoms recorded"}
+</p>
+
+<p>
+  <b>Recommendation:</b>{" "}
+  {r.recommendation || "No recommendation"}
+</p>
+
+<p>
+  <b>Pharmacist Notes:</b>{" "}
+  {r.pharmacist_notes || "None"}
+</p>
+
+<p>
+  <b>Gender:</b>{" "}
+  {r.gender || "Not captured"}
+</p>
+
+<p>
+  <b>Duration:</b>{" "}
+  {r.symptom_duration || "Not captured"}
+</p>
+
+<p>
+  <b>Height:</b>{" "}
+  {r.height_cm || "-"} cm
+</p>
+
+<p>
+  <b>Weight:</b>{" "}
+  {r.weight_kg || "-"} kg
+</p>
         </div>
       ))}
     </main>
