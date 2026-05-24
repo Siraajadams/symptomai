@@ -22,7 +22,7 @@ export default function HistoryPage() {
     setEmail(userData.user.email || "");
 
     const { data, error } = await supabase
-      .from("triage_records")
+      .from("triage_history")
       .select("*")
       .eq("user_id", userData.user.id)
       .order("created_at", { ascending: false });
