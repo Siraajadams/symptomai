@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "./lib/supabaseClient";
+
 type FormState = {
   name: string;
   age: string;
@@ -86,6 +87,7 @@ const redFlags = [
 
 function decideTriage(form: FormState): TriageResult {
   const emergencySymptoms = ["Poisoning", "Palpitations", "Blurred Vision"];
+
   const doctorSymptoms = [
     "Dental Pain",
     "Earache",
@@ -154,6 +156,7 @@ export default function Page() {
   const [form, setForm] = useState<FormState>(initialForm);
   const [result, setResult] = useState<TriageResult | null>(null);
   const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [saveMessage, setSaveMessage] = useState("");
 
   useEffect(() => {
     const handler = (e: any) => {
@@ -168,7 +171,9 @@ export default function Page() {
   const bmi = useMemo(() => {
     const h = Number(form.heightCm) / 100;
     const w = Number(form.weightKg);
+
     if (!h || !w) return "";
+
     return (w / (h * h)).toFixed(1);
   }, [form.heightCm, form.weightKg]);
 
@@ -199,83 +204,59 @@ export default function Page() {
     }));
   }
 
- async function saveTriageToSupabase(
-  decision: TriageResult
-) {
-  const { data: userData } =
-    await supabase.auth.getUser();
+  async function saveTriageToSupabase(decision: TriageResult) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-  if (!userData.user) {
-    alert(
-      "Triage completed, but not saved. Please create a profile/login first."
-    );
-    return;
+    if (!user) {
+      setSaveMessage(
+        "Triage completed, but not saved. Please create a profile/login first."
+      );
+      return;
+    }
+
+    const recommendation = `${decision.level} | ${decision.destination} | ${decision.urgency} | ${decision.advice}`;
+
+    const { error } = await supabase.from("triage_history").insert([
+      {
+        user_id: user.id,
+        symptoms: form.symptoms,
+        recommendation: recommendation,
+        pharmacist_notes: form.notes,
+        gender: form.gender,
+        symptom_duration: form.duration,
+        height_cm: form.heightCm,
+        weight_kg: form.weightKg,
+      },
+    ]);
+
+    if (error) {
+      console.error("Save error:", error);
+      setSaveMessage("Could not save triage history: " + error.message);
+      alert("Could not save triage history: " + error.message);
+    } else {
+      setSaveMessage("Triage saved successfully to patient history.");
+    }
   }
 
-  const { error } = await supabase
-    .from("triage_records")
-    .insert({
-      user_id: userData.user.id,
+  async function submitTriage() {
+    const decision = decideTriage(form);
 
-      patient_name: form.name,
-      age: form.age,
-      gender: form.gender,
+    await saveTriageToSupabase(decision);
 
-      pregnant:
-        form.gender === "female"
-          ? form.pregnant
-          : "Not applicable",
+    setResult(decision);
 
-      country: form.country,
-      city: form.city,
-
-      height_cm: form.heightCm,
-      weight_kg: form.weightKg,
-      bmi: bmi,
-
-      symptoms: form.symptoms,
-      red_flags: form.redFlags,
-
-      duration: form.duration,
-      notes: form.notes,
-
-      outcome_level: decision.level,
-      outcome_destination:
-        decision.destination,
-
-      urgency: decision.urgency,
-      advice: decision.advice,
-
-      ai_reasoning:
-        decision.reasoning,
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
     });
-
-  if (error) {
-    console.error(error);
-    alert(
-      "Could not save triage history."
-    );
   }
-}
-
-async function submitTriage() {
-  const decision = decideTriage(form);
-
-  await saveTriageToSupabase(
-    decision
-  );
-
-  setResult(decision);
-
-  window.scrollTo({
-    top: 0,
-    behavior: "smooth",
-  });
-}
 
   function newTriage() {
     setForm(initialForm);
     setResult(null);
+    setSaveMessage("");
   }
 
   function pharmacyMapByCity() {
@@ -293,6 +274,7 @@ async function submitTriage() {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { latitude, longitude } = pos.coords;
+
         window.open(
           `https://www.google.com/maps/search/pharmacy/@${latitude},${longitude},14z`,
           "_blank"
@@ -331,12 +313,12 @@ Symptom duration: ${form.duration || "Not selected"}
 Red flags: ${form.redFlags.length ? form.redFlags.join(", ") : "None selected"}
 Notes: ${form.notes || "None"}
 
-Outcome: ${result?.level}
-Destination: ${result?.destination}
-Urgency: ${result?.urgency}
-Advice: ${result?.advice}
-Summary: ${result?.summary}
-AI reasoning: ${result?.reasoning}
+Outcome: ${result?.level || "Pending"}
+Destination: ${result?.destination || "Pending"}
+Urgency: ${result?.urgency || "Pending"}
+Advice: ${result?.advice || "Pending"}
+Summary: ${result?.summary || "Pending"}
+AI reasoning: ${result?.reasoning || "Pending"}
 
 Clinical references:
 NICE Clinical Knowledge Summaries, South African Primary Care/STG/EML principles, pharmacist referral guidance, WHO emergency escalation principles.
@@ -346,6 +328,7 @@ Generated by SymptomAI.`;
 
   function downloadPDF() {
     const win = window.open("", "_blank");
+
     if (!win) return;
 
     win.document.write(`
@@ -367,6 +350,7 @@ Generated by SymptomAI.`;
 
     win.document.close();
     win.focus();
+
     setTimeout(() => win.print(), 500);
   }
 
@@ -383,6 +367,7 @@ Generated by SymptomAI.`;
   }
 
   const whatsappLink = `https://wa.me/?text=${encodeURIComponent(reportText())}`;
+
   const emailLink = `mailto:?subject=SymptomAI Triage Report&body=${encodeURIComponent(
     reportText()
   )}`;
@@ -658,6 +643,15 @@ Generated by SymptomAI.`;
           color: #071b3d;
         }
 
+        .save-message {
+          background: #eef8f8;
+          border-radius: 18px;
+          padding: 14px 16px;
+          font-weight: 900;
+          color: #071b3d;
+          margin: 16px 0;
+        }
+
         .references {
           font-size: 14px;
           color: #6b7b86;
@@ -741,6 +735,7 @@ Generated by SymptomAI.`;
             }`}
           >
             <span className="badge">{result.level}</span>
+
             <div
               className={`severity ${
                 result.routeType === "emergency"
@@ -755,15 +750,20 @@ Generated by SymptomAI.`;
 
             <h1>{result.destination}</h1>
 
+            {saveMessage && <div className="save-message">{saveMessage}</div>}
+
             <div className="result-line">
               <b>Advice:</b> {result.advice}
             </div>
+
             <div className="result-line">
               <b>Summary:</b> {result.summary}
             </div>
+
             <div className="result-line">
               <b>AI reasoning:</b> {result.reasoning}
             </div>
+
             <div className="result-line">
               <b>BMI:</b> {bmi || "Not calculated"}
             </div>
@@ -780,6 +780,7 @@ Generated by SymptomAI.`;
                   <a className="button" href={gpReferralUrl} target="_blank">
                     Book GP via Carelink
                   </a>
+
                   <a
                     className="button gold"
                     href={prescribingPharmacistUrl}
@@ -793,18 +794,23 @@ Generated by SymptomAI.`;
               <button className="button" onClick={pharmacyMapByCity}>
                 Find pharmacy by city
               </button>
+
               <button className="button secondary" onClick={pharmacyMapByLocation}>
                 Use current location
               </button>
+
               <a className="button secondary" href={whatsappLink} target="_blank">
                 WhatsApp report
               </a>
+
               <a className="button secondary" href={emailLink}>
                 Email report
               </a>
+
               <button className="button secondary" onClick={downloadPDF}>
                 Download PDF
               </button>
+
               <button className="button" onClick={newTriage}>
                 New triage
               </button>
@@ -814,6 +820,7 @@ Generated by SymptomAI.`;
           <>
             <section className="card hero">
               <h1>60-second pharmacy triage</h1>
+
               <p>
                 Capture symptoms, identify red flags, and route patients to
                 emergency care, GP review, prescribing pharmacist care, or
@@ -824,12 +831,15 @@ Generated by SymptomAI.`;
                 <a className="button" href="#triage">
                   Start triage
                 </a>
+
                 <a className="button outline" href="/login">
                   Create Profile / Login
                 </a>
+
                 <a className="button secondary" href="/history">
                   View Patient History
                 </a>
+
                 <button className="button secondary" onClick={installApp}>
                   Install web app
                 </button>
@@ -838,6 +848,7 @@ Generated by SymptomAI.`;
 
             <section className="card">
               <h2>Built for pharmacies</h2>
+
               <p>
                 Interactive symptom selection, BMI capture, red-flag screening,
                 clinical references, WhatsApp summaries, PDF reports, GP routing,
@@ -950,6 +961,7 @@ Generated by SymptomAI.`;
               {form.gender === "female" && (
                 <div className="section">
                   <label>Pregnant?</label>
+
                   <select
                     value={form.pregnant}
                     onChange={(e) => update("pregnant", e.target.value)}
@@ -1013,6 +1025,7 @@ Generated by SymptomAI.`;
 
               <div className="section">
                 <label>Pharmacist notes</label>
+
                 <textarea
                   value={form.notes}
                   onChange={(e) => update("notes", e.target.value)}
@@ -1024,12 +1037,14 @@ Generated by SymptomAI.`;
                 <button className="button secondary" onClick={pharmacyMapByCity}>
                   Find pharmacy by city
                 </button>
+
                 <button
                   className="button secondary"
                   onClick={pharmacyMapByLocation}
                 >
                   Use current location
                 </button>
+
                 <button className="button" onClick={submitTriage}>
                   Get triage recommendation
                 </button>
