@@ -318,10 +318,11 @@ export default function Page() {
         .from("patients")
         .select(fields)
         .eq(column, lookupValue)
-        .limit(1)
-        .maybeSingle();
+        .limit(1);
 
-      if (!error && data?.id) return data as PatientLookupResult;
+      if (!error && data && data.length > 0 && data[0]?.id) {
+        return data[0] as PatientLookupResult;
+      }
     }
 
     return null;
@@ -383,11 +384,10 @@ export default function Page() {
           .from("patients")
           .select(fields)
           .eq(column, mobileValue)
-          .limit(1)
-          .maybeSingle();
+          .limit(1);
 
-        if (!error && data?.id) {
-          const patient = data as PatientLookupResult;
+        if (!error && data && data.length > 0 && data[0]?.id) {
+          const patient = data[0] as PatientLookupResult;
           setSelectedPatientId(patient.id);
           setSelectedPatient(patient);
           applyPatientToForm(patient);
