@@ -27,6 +27,22 @@ type ReferralDetails = {
   expires_at: string;
 };
 
+type PatientLookupResult = {
+  id: string;
+  first_name?: string | null;
+  surname?: string | null;
+  last_name?: string | null;
+  patient_id?: string | null;
+  national_id?: string | null;
+  id_number?: string | null;
+  dob?: string | null;
+  date_of_birth?: string | null;
+  gender?: string | null;
+  mobile?: string | null;
+  phone?: string | null;
+  email?: string | null;
+};
+
 type TriageResult = {
   level: string;
   destination: string;
@@ -172,6 +188,10 @@ export default function Page() {
   const [referralMessage, setReferralMessage] = useState("");
   const [referralLoading, setReferralLoading] = useState(false);
   const [referral, setReferral] = useState<ReferralDetails | null>(null);
+  const [patientLookupLoading, setPatientLookupLoading] = useState(false);
+  const [patientLookupMessage, setPatientLookupMessage] = useState("");
+  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
+  const [selectedPatient, setSelectedPatient] = useState<PatientLookupResult | null>(null);
 
   useEffect(() => {
     const handler = (e: any) => {
@@ -234,27 +254,120 @@ export default function Page() {
     return { firstName, surname };
   }
 
-  async function findExistingPatientId() {
-    if (form.idNumber.trim()) {
+  function normaliseId(value: string) {
+    return value.trim().replace(/\s+/g, "").toUpperCase();
+  }
+
+  function patientDisplayName(patient: PatientLookupResult) {
+    const first = patient.first_name || "";
+    const last = patient.surname || patient.last_name || "";
+    return `${first} ${last}`.trim();
+  }
+
+  function applyPatientToForm(patient: PatientLookupResult) {
+    const existingName = patientDisplayName(patient);
+    setForm((prev) => ({
+      ...prev,
+      name: existingName || prev.name,
+      idNumber:
+        patient.patient_id ||
+        patient.national_id ||
+        patient.id_number ||
+        prev.idNumber,
+      dateOfBirth: patient.dob || patient.date_of_birth || prev.dateOfBirth,
+      mobile: patient.phone || patient.mobile || prev.mobile,
+      gender: patient.gender ? patient.gender.toLowerCase() : prev.gender,
+    }));
+  }
+
+  async function findExistingPatientById(idValue?: string) {
+    const lookupValue = normaliseId(idValue || form.idNumber);
+    if (!lookupValue) return null;
+
+    const fields = "id, first_name, surname, last_name, patient_id, national_id, id_number, dob, date_of_birth, gender, mobile, phone, email";
+    const columns = ["patient_id", "national_id", "id_number"];
+
+    for (const column of columns) {
       const { data, error } = await supabase
         .from("patients")
-        .select("id")
-        .eq("id_number", form.idNumber.trim())
+        .select(fields)
+        .eq(column, lookupValue)
         .limit(1)
         .maybeSingle();
 
-      if (!error && data?.id) return data.id as string;
+      if (!error && data?.id) return data as PatientLookupResult;
+    }
+
+    return null;
+  }
+
+  async function searchPatientByNationalId() {
+    if (!form.idNumber.trim()) {
+      alert("Please enter the National ID / Passport number first.");
+      return;
+    }
+
+    setPatientLookupLoading(true);
+    setPatientLookupMessage("");
+    setSelectedPatientId(null);
+    setSelectedPatient(null);
+
+    try {
+      const patient = await findExistingPatientById(form.idNumber);
+
+      if (patient?.id) {
+        setSelectedPatientId(patient.id);
+        setSelectedPatient(patient);
+        applyPatientToForm(patient);
+        setPatientLookupMessage(
+          `Existing CareScriber patient found: ${patientDisplayName(patient) || "patient profile"}. Continue with triage.`,
+        );
+        return;
+      }
+
+      setPatientLookupMessage(
+        "No existing CareScriber patient found. Complete the patient details below and SymptomAI will create the profile before referral.",
+      );
+    } catch (error: any) {
+      console.error("Patient lookup error:", error);
+      setPatientLookupMessage("Could not search patient: " + error.message);
+    } finally {
+      setPatientLookupLoading(false);
+    }
+  }
+
+  async function findExistingPatientId() {
+    if (selectedPatientId) return selectedPatientId;
+
+    const patientById = await findExistingPatientById(form.idNumber);
+    if (patientById?.id) {
+      setSelectedPatientId(patientById.id);
+      setSelectedPatient(patientById);
+      applyPatientToForm(patientById);
+      return patientById.id;
     }
 
     if (form.mobile.trim()) {
-      const { data, error } = await supabase
-        .from("patients")
-        .select("id")
-        .eq("mobile", form.mobile.trim())
-        .limit(1)
-        .maybeSingle();
+      const fields = "id, first_name, surname, last_name, patient_id, national_id, id_number, dob, date_of_birth, gender, mobile, phone, email";
+      const mobileValue = form.mobile.trim();
+      const phoneColumns = ["phone", "mobile"];
 
-      if (!error && data?.id) return data.id as string;
+      for (const column of phoneColumns) {
+        const { data, error } = await supabase
+          .from("patients")
+          .select(fields)
+          .eq(column, mobileValue)
+          .limit(1)
+          .maybeSingle();
+
+        if (!error && data?.id) {
+          const patient = data as PatientLookupResult;
+          setSelectedPatientId(patient.id);
+          setSelectedPatient(patient);
+          applyPatientToForm(patient);
+          return patient.id;
+        }
+      }
     }
 
     return null;
@@ -265,45 +378,74 @@ export default function Page() {
     if (existingPatientId) return existingPatientId;
 
     const { firstName, surname } = splitName(form.name);
+    const normalisedId = normaliseId(form.idNumber);
 
-    const insertAttempts: Record<string, any>[] = [
-      {
-        first_name: firstName,
-        surname: surname,
-        id_number: form.idNumber.trim() || null,
-        date_of_birth: form.dateOfBirth || null,
-        mobile: form.mobile.trim() || null,
-        gender: form.gender || null,
-        country: form.country || null,
-      },
-      {
-        name: form.name.trim() || "Patient",
-        id_number: form.idNumber.trim() || null,
-        date_of_birth: form.dateOfBirth || null,
-        mobile: form.mobile.trim() || null,
-        gender: form.gender || null,
-        country: form.country || null,
-      },
-      {
-        id_number: form.idNumber.trim() || null,
-        date_of_birth: form.dateOfBirth || null,
-      },
-    ];
+    const patientPayload = {
+      first_name: firstName,
+      surname: surname,
+      last_name: surname,
+      patient_id: normalisedId || null,
+      national_id: normalisedId || null,
+      id_number: normalisedId || null,
+      dob: form.dateOfBirth || null,
+      date_of_birth: form.dateOfBirth || null,
+      phone: form.mobile.trim() || null,
+      mobile: form.mobile.trim() || null,
+      gender: form.gender || null,
+      source: "SymptomAI",
+      last_triage_at: new Date().toISOString(),
+    };
 
-    let lastError = "";
+    const { data, error } = await supabase
+      .from("patients")
+      .insert([patientPayload])
+      .select("id")
+      .single();
 
-    for (const patientPayload of insertAttempts) {
-      const { data, error } = await supabase
-        .from("patients")
-        .insert([patientPayload])
-        .select("id")
-        .single();
+    if (error) throw error;
+    if (!data?.id) throw new Error("Could not create patient profile.");
 
-      if (!error && data?.id) return data.id as string;
-      lastError = error?.message || "Unknown patient insert error";
-    }
+    setSelectedPatientId(data.id as string);
+    return data.id as string;
+  }
 
-    throw new Error(lastError || "Could not create patient profile.");
+  async function saveSymptomAITriage(patientId: string, decision: TriageResult) {
+    const { data, error } = await supabase
+      .from("symptomai_triage")
+      .insert([
+        {
+          patient_id: patientId,
+          national_id: normaliseId(form.idNumber) || null,
+          full_name: form.name.trim() || null,
+          age: form.age || null,
+          date_of_birth: form.dateOfBirth || null,
+          gender: form.gender || null,
+          pregnant: form.gender === "female" ? form.pregnant : "not_applicable",
+          country: form.country || null,
+          city: form.city || null,
+          mobile: form.mobile.trim() || null,
+          height_cm: form.heightCm || null,
+          weight_kg: form.weightKg || null,
+          bmi: bmi || null,
+          symptom_duration: form.duration || null,
+          symptoms: form.symptoms,
+          red_flags: form.redFlags,
+          notes: form.notes || null,
+          triage_level: decision.level,
+          destination: decision.destination,
+          urgency: decision.urgency,
+          advice: decision.advice,
+          summary: decision.summary,
+          reasoning: decision.reasoning,
+          route_type: decision.routeType,
+          source: "SymptomAI",
+        },
+      ])
+      .select("id")
+      .single();
+
+    if (error) throw error;
+    return data?.id as string | null;
   }
 
   async function generateCareScriberReferral() {
@@ -312,15 +454,13 @@ export default function Page() {
       return;
     }
 
-    if (!form.name.trim()) {
-      alert("Please enter the patient name before creating a referral.");
+    if (!form.idNumber.trim()) {
+      alert("Please enter the National ID / Passport number before creating a referral.");
       return;
     }
 
-    if (!form.idNumber.trim() && !form.mobile.trim()) {
-      alert(
-        "Please enter either an ID number or mobile number before creating a referral.",
-      );
+    if (!form.name.trim()) {
+      alert("Please enter the patient name before creating a referral.");
       return;
     }
 
@@ -329,21 +469,44 @@ export default function Page() {
 
     try {
       const patientId = await createPatientForReferral();
+      const triageId = await saveSymptomAITriage(patientId, result);
       const referralCode = generateReferralCode();
       const consentToken = generateConsentToken();
 
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 7);
 
+      const patientSnapshot = {
+        name: form.name,
+        national_id: normaliseId(form.idNumber),
+        date_of_birth: form.dateOfBirth,
+        mobile: form.mobile,
+        age: form.age,
+        gender: form.gender,
+        country: form.country,
+        city: form.city,
+        symptoms: form.symptoms,
+        red_flags: form.redFlags,
+        notes: form.notes,
+        bmi,
+      };
+
       const { error } = await supabase.from("symptomai_referrals").insert([
         {
           patient_id: patientId,
+          triage_id: triageId,
+          national_id: normaliseId(form.idNumber) || null,
+          patient_name: form.name.trim() || null,
           referral_code: referralCode,
           consent_token: consentToken,
           consent_given: true,
+          consent_expires_at: expiresAt.toISOString(),
+          referral_source: "SymptomAI",
+          referral_reason: result.destination,
+          urgency: result.urgency,
+          triage_summary: result.summary,
+          patient_snapshot: patientSnapshot,
           status: "Pending",
-          submitted_at: new Date().toISOString(),
-          expires_at: expiresAt.toISOString(),
         },
       ]);
 
@@ -370,39 +533,9 @@ export default function Page() {
   }
 
   async function saveTriageToSupabase(decision: TriageResult) {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      setSaveMessage(
-        "Triage completed, but not saved. Please create a profile/login first.",
-      );
-      return;
-    }
-
-    const recommendation = `${decision.level} | ${decision.destination} | ${decision.urgency} | ${decision.advice}`;
-
-    const { error } = await supabase.from("triage_history").insert([
-      {
-        user_id: user.id,
-        symptoms: form.symptoms,
-        recommendation: recommendation,
-        pharmacist_notes: form.notes,
-        gender: form.gender,
-        symptom_duration: form.duration,
-        height_cm: form.heightCm,
-        weight_kg: form.weightKg,
-      },
-    ]);
-
-    if (error) {
-      console.error("Save error:", error);
-      setSaveMessage("Could not save triage history: " + error.message);
-      alert("Could not save triage history: " + error.message);
-    } else {
-      setSaveMessage("Triage saved successfully to patient history.");
-    }
+    setSaveMessage(
+      "Triage completed. Generate the CareScriber referral to save the patient profile, linked triage history and consent token.",
+    );
   }
 
   async function submitTriage() {
@@ -424,6 +557,9 @@ export default function Page() {
     setSaveMessage("");
     setReferralMessage("");
     setReferral(null);
+    setPatientLookupMessage("");
+    setSelectedPatientId(null);
+    setSelectedPatient(null);
   }
 
   function pharmacyMapByCity() {
@@ -1111,22 +1247,49 @@ Generated by SymptomAI.`;
 
               <h2>Patient details</h2>
 
+              <div className="chat">
+                <strong>Lookup first</strong>
+                Enter the National ID / Passport number first and search before capturing the rest of the form. This prevents duplicate patient profiles across SymptomAI and CareScriber.
+              </div>
+
+              {patientLookupMessage && (
+                <div className="save-message">{patientLookupMessage}</div>
+              )}
+
               <div className="grid">
+                <div>
+                  <label>National ID / Passport number</label>
+                  <input
+                    value={form.idNumber}
+                    onChange={(e) => {
+                      update("idNumber", e.target.value);
+                      setSelectedPatientId(null);
+                      setSelectedPatient(null);
+                      setPatientLookupMessage("");
+                    }}
+                    placeholder="SA ID, passport or national ID"
+                  />
+                </div>
+
+                <div>
+                  <label>Lookup existing CareScriber patient</label>
+                  <button
+                    className="button secondary"
+                    onClick={searchPatientByNationalId}
+                    type="button"
+                    disabled={patientLookupLoading}
+                    style={{ width: "100%" }}
+                  >
+                    {patientLookupLoading ? "Searching..." : "Search Patient"}
+                  </button>
+                </div>
+
                 <div>
                   <label>Full name</label>
                   <input
                     value={form.name}
                     onChange={(e) => update("name", e.target.value)}
                     placeholder="Patient name"
-                  />
-                </div>
-
-                <div>
-                  <label>ID / Passport number</label>
-                  <input
-                    value={form.idNumber}
-                    onChange={(e) => update("idNumber", e.target.value)}
-                    placeholder="SA ID, passport or national ID"
                   />
                 </div>
 
