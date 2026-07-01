@@ -5,6 +5,9 @@ import { supabase } from "./lib/supabaseClient";
 
 type FormState = {
   name: string;
+  idNumber: string;
+  dateOfBirth: string;
+  mobile: string;
   age: string;
   gender: string;
   pregnant: string;
@@ -16,6 +19,12 @@ type FormState = {
   symptoms: string[];
   redFlags: string[];
   notes: string;
+};
+
+type ReferralDetails = {
+  referral_code: string;
+  consent_token: string;
+  expires_at: string;
 };
 
 type TriageResult = {
@@ -30,6 +39,9 @@ type TriageResult = {
 
 const initialForm: FormState = {
   name: "",
+  idNumber: "",
+  dateOfBirth: "",
+  mobile: "",
   age: "",
   gender: "",
   pregnant: "no",
@@ -157,6 +169,9 @@ export default function Page() {
   const [result, setResult] = useState<TriageResult | null>(null);
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [saveMessage, setSaveMessage] = useState("");
+  const [referralMessage, setReferralMessage] = useState("");
+  const [referralLoading, setReferralLoading] = useState(false);
+  const [referral, setReferral] = useState<ReferralDetails | null>(null);
 
   useEffect(() => {
     const handler = (e: any) => {
@@ -179,7 +194,7 @@ export default function Page() {
 
   const selectedSymptoms = useMemo(
     () => form.symptoms.join(", "),
-    [form.symptoms]
+    [form.symptoms],
   );
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
@@ -204,6 +219,156 @@ export default function Page() {
     }));
   }
 
+  function generateReferralCode() {
+    return "CS-" + Math.random().toString(36).substring(2, 8).toUpperCase();
+  }
+
+  function generateConsentToken() {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+  }
+
+  function splitName(fullName: string) {
+    const parts = fullName.trim().split(/\s+/).filter(Boolean);
+    const firstName = parts[0] || "Patient";
+    const surname = parts.length > 1 ? parts.slice(1).join(" ") : "";
+    return { firstName, surname };
+  }
+
+  async function findExistingPatientId() {
+    if (form.idNumber.trim()) {
+      const { data, error } = await supabase
+        .from("patients")
+        .select("id")
+        .eq("id_number", form.idNumber.trim())
+        .limit(1)
+        .maybeSingle();
+
+      if (!error && data?.id) return data.id as string;
+    }
+
+    if (form.mobile.trim()) {
+      const { data, error } = await supabase
+        .from("patients")
+        .select("id")
+        .eq("mobile", form.mobile.trim())
+        .limit(1)
+        .maybeSingle();
+
+      if (!error && data?.id) return data.id as string;
+    }
+
+    return null;
+  }
+
+  async function createPatientForReferral() {
+    const existingPatientId = await findExistingPatientId();
+    if (existingPatientId) return existingPatientId;
+
+    const { firstName, surname } = splitName(form.name);
+
+    const insertAttempts: Record<string, any>[] = [
+      {
+        first_name: firstName,
+        surname: surname,
+        id_number: form.idNumber.trim() || null,
+        date_of_birth: form.dateOfBirth || null,
+        mobile: form.mobile.trim() || null,
+        gender: form.gender || null,
+        country: form.country || null,
+      },
+      {
+        name: form.name.trim() || "Patient",
+        id_number: form.idNumber.trim() || null,
+        date_of_birth: form.dateOfBirth || null,
+        mobile: form.mobile.trim() || null,
+        gender: form.gender || null,
+        country: form.country || null,
+      },
+      {
+        id_number: form.idNumber.trim() || null,
+        date_of_birth: form.dateOfBirth || null,
+      },
+    ];
+
+    let lastError = "";
+
+    for (const patientPayload of insertAttempts) {
+      const { data, error } = await supabase
+        .from("patients")
+        .insert([patientPayload])
+        .select("id")
+        .single();
+
+      if (!error && data?.id) return data.id as string;
+      lastError = error?.message || "Unknown patient insert error";
+    }
+
+    throw new Error(lastError || "Could not create patient profile.");
+  }
+
+  async function generateCareScriberReferral() {
+    if (!result) {
+      alert("Please complete triage first.");
+      return;
+    }
+
+    if (!form.name.trim()) {
+      alert("Please enter the patient name before creating a referral.");
+      return;
+    }
+
+    if (!form.idNumber.trim() && !form.mobile.trim()) {
+      alert(
+        "Please enter either an ID number or mobile number before creating a referral.",
+      );
+      return;
+    }
+
+    setReferralLoading(true);
+    setReferralMessage("");
+
+    try {
+      const patientId = await createPatientForReferral();
+      const referralCode = generateReferralCode();
+      const consentToken = generateConsentToken();
+
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 7);
+
+      const { error } = await supabase.from("symptomai_referrals").insert([
+        {
+          patient_id: patientId,
+          referral_code: referralCode,
+          consent_token: consentToken,
+          consent_given: true,
+          status: "Pending",
+          submitted_at: new Date().toISOString(),
+          expires_at: expiresAt.toISOString(),
+        },
+      ]);
+
+      if (error) throw error;
+
+      setReferral({
+        referral_code: referralCode,
+        consent_token: consentToken,
+        expires_at: expiresAt.toISOString(),
+      });
+
+      setReferralMessage(
+        "CareScriber referral created. Share the referral code and consent token with the doctor.",
+      );
+    } catch (error: any) {
+      console.error("Referral error:", error);
+      setReferralMessage(
+        "Could not create CareScriber referral: " + error.message,
+      );
+      alert("Could not create CareScriber referral: " + error.message);
+    } finally {
+      setReferralLoading(false);
+    }
+  }
+
   async function saveTriageToSupabase(decision: TriageResult) {
     const {
       data: { user },
@@ -211,7 +376,7 @@ export default function Page() {
 
     if (!user) {
       setSaveMessage(
-        "Triage completed, but not saved. Please create a profile/login first."
+        "Triage completed, but not saved. Please create a profile/login first.",
       );
       return;
     }
@@ -257,6 +422,8 @@ export default function Page() {
     setForm(initialForm);
     setResult(null);
     setSaveMessage("");
+    setReferralMessage("");
+    setReferral(null);
   }
 
   function pharmacyMapByCity() {
@@ -266,7 +433,7 @@ export default function Page() {
 
     window.open(
       `https://www.google.com/maps/search/${encodeURIComponent(query)}`,
-      "_blank"
+      "_blank",
     );
   }
 
@@ -277,10 +444,10 @@ export default function Page() {
 
         window.open(
           `https://www.google.com/maps/search/pharmacy/@${latitude},${longitude},14z`,
-          "_blank"
+          "_blank",
         );
       },
-      () => pharmacyMapByCity()
+      () => pharmacyMapByCity(),
     );
   }
 
@@ -301,6 +468,9 @@ export default function Page() {
     return `SYMPTOMAI TRIAGE REPORT
 
 Patient: ${form.name || "Not provided"}
+ID / Passport: ${form.idNumber || "Not provided"}
+Date of birth: ${form.dateOfBirth || "Not provided"}
+Mobile: ${form.mobile || "Not provided"}
 Age: ${form.age || "Not provided"}
 Gender: ${form.gender || "Not provided"}
 Pregnant: ${form.gender === "female" ? form.pregnant : "Not applicable"}
@@ -361,7 +531,7 @@ Generated by SymptomAI.`;
       setInstallPrompt(null);
     } else {
       alert(
-        "To install SymptomAI, open your browser menu and select “Add to Home screen”."
+        "To install SymptomAI, open your browser menu and select “Add to Home screen”.",
       );
     }
   }
@@ -369,7 +539,7 @@ Generated by SymptomAI.`;
   const whatsappLink = `https://wa.me/?text=${encodeURIComponent(reportText())}`;
 
   const emailLink = `mailto:?subject=SymptomAI Triage Report&body=${encodeURIComponent(
-    reportText()
+    reportText(),
   )}`;
 
   return (
@@ -652,6 +822,39 @@ Generated by SymptomAI.`;
           margin: 16px 0;
         }
 
+        .referral-box {
+          background: #f4fbfb;
+          border: 2px solid #1dcfc1;
+          border-radius: 24px;
+          padding: 18px;
+          margin-top: 20px;
+        }
+
+        .referral-title {
+          font-size: 20px;
+          font-weight: 900;
+          margin-bottom: 10px;
+          color: #071b3d;
+        }
+
+        .referral-code {
+          background: #ffffff;
+          border: 1px solid #dceeee;
+          border-radius: 18px;
+          padding: 14px;
+          font-size: 22px;
+          font-weight: 900;
+          letter-spacing: 0.08em;
+          margin: 10px 0;
+        }
+
+        .referral-note {
+          color: #647480;
+          font-size: 16px;
+          line-height: 1.5;
+          margin-top: 10px;
+        }
+
         .references {
           font-size: 14px;
           color: #6b7b86;
@@ -730,8 +933,8 @@ Generated by SymptomAI.`;
               result.routeType === "emergency"
                 ? "emergency"
                 : result.routeType === "doctor"
-                ? "doctor"
-                : ""
+                  ? "doctor"
+                  : ""
             }`}
           >
             <span className="badge">{result.level}</span>
@@ -741,8 +944,8 @@ Generated by SymptomAI.`;
                 result.routeType === "emergency"
                   ? "emergency"
                   : result.routeType === "doctor"
-                  ? "doctor"
-                  : "pharmacist"
+                    ? "doctor"
+                    : "pharmacist"
               }`}
             >
               {result.urgency}
@@ -767,6 +970,32 @@ Generated by SymptomAI.`;
             <div className="result-line">
               <b>BMI:</b> {bmi || "Not calculated"}
             </div>
+
+            {referralMessage && (
+              <div className="save-message">{referralMessage}</div>
+            )}
+
+            {referral && (
+              <div className="referral-box">
+                <div className="referral-title">
+                  CareScriber Referral Created
+                </div>
+                <div className="result-line">
+                  <b>Referral Code</b>
+                </div>
+                <div className="referral-code">{referral.referral_code}</div>
+                <div className="result-line">
+                  <b>Patient Consent Token</b>
+                </div>
+                <div className="referral-code">{referral.consent_token}</div>
+                <div className="referral-note">
+                  Share both codes with the doctor. The doctor will use these
+                  codes in CareScriber to unlock the patient profile and triage
+                  summary. This referral expires on{" "}
+                  {new Date(referral.expires_at).toLocaleDateString()}.
+                </div>
+              </div>
+            )}
 
             <div className="button-row">
               {result.routeType === "emergency" && (
@@ -795,11 +1024,18 @@ Generated by SymptomAI.`;
                 Find pharmacy by city
               </button>
 
-              <button className="button secondary" onClick={pharmacyMapByLocation}>
+              <button
+                className="button secondary"
+                onClick={pharmacyMapByLocation}
+              >
                 Use current location
               </button>
 
-              <a className="button secondary" href={whatsappLink} target="_blank">
+              <a
+                className="button secondary"
+                href={whatsappLink}
+                target="_blank"
+              >
                 WhatsApp report
               </a>
 
@@ -809,6 +1045,16 @@ Generated by SymptomAI.`;
 
               <button className="button secondary" onClick={downloadPDF}>
                 Download PDF
+              </button>
+
+              <button
+                className="button"
+                onClick={generateCareScriberReferral}
+                disabled={referralLoading}
+              >
+                {referralLoading
+                  ? "Creating referral..."
+                  : "Generate CareScriber Referral"}
               </button>
 
               <button className="button" onClick={newTriage}>
@@ -851,8 +1097,9 @@ Generated by SymptomAI.`;
 
               <p>
                 Interactive symptom selection, BMI capture, red-flag screening,
-                clinical references, WhatsApp summaries, PDF reports, GP routing,
-                prescribing pharmacist referral and nearest pharmacy search.
+                clinical references, WhatsApp summaries, PDF reports, GP
+                routing, prescribing pharmacist referral and nearest pharmacy
+                search.
               </p>
             </section>
 
@@ -871,6 +1118,33 @@ Generated by SymptomAI.`;
                     value={form.name}
                     onChange={(e) => update("name", e.target.value)}
                     placeholder="Patient name"
+                  />
+                </div>
+
+                <div>
+                  <label>ID / Passport number</label>
+                  <input
+                    value={form.idNumber}
+                    onChange={(e) => update("idNumber", e.target.value)}
+                    placeholder="SA ID, passport or national ID"
+                  />
+                </div>
+
+                <div>
+                  <label>Date of birth</label>
+                  <input
+                    type="date"
+                    value={form.dateOfBirth}
+                    onChange={(e) => update("dateOfBirth", e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label>Mobile number</label>
+                  <input
+                    value={form.mobile}
+                    onChange={(e) => update("mobile", e.target.value)}
+                    placeholder="0821234567"
                   />
                 </div>
 
@@ -1034,7 +1308,10 @@ Generated by SymptomAI.`;
               </div>
 
               <div className="button-row">
-                <button className="button secondary" onClick={pharmacyMapByCity}>
+                <button
+                  className="button secondary"
+                  onClick={pharmacyMapByCity}
+                >
                   Find pharmacy by city
                 </button>
 
@@ -1052,9 +1329,9 @@ Generated by SymptomAI.`;
 
               <div className="references">
                 Clinical guidance references: NICE Clinical Knowledge Summaries,
-                South African Primary Care/STG/EML principles, pharmacist referral
-                guidance, WHO emergency escalation principles, and pharmacy minor
-                ailment triage pathways.
+                South African Primary Care/STG/EML principles, pharmacist
+                referral guidance, WHO emergency escalation principles, and
+                pharmacy minor ailment triage pathways.
               </div>
             </section>
           </>
