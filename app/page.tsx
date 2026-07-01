@@ -5,6 +5,9 @@ import { supabase } from "./lib/supabaseClient";
 
 type FormState = {
   name: string;
+  firstName: string;
+  surname: string;
+  email: string;
   idNumber: string;
   dateOfBirth: string;
   mobile: string;
@@ -55,6 +58,9 @@ type TriageResult = {
 
 const initialForm: FormState = {
   name: "",
+  firstName: "",
+  surname: "",
+  email: "",
   idNumber: "",
   dateOfBirth: "",
   mobile: "",
@@ -247,11 +253,27 @@ export default function Page() {
     return Math.floor(100000 + Math.random() * 900000).toString();
   }
 
-  function splitName(fullName: string) {
-    const parts = fullName.trim().split(/\s+/).filter(Boolean);
-    const firstName = parts[0] || "Patient";
-    const surname = parts.length > 1 ? parts.slice(1).join(" ") : "";
-    return { firstName, surname };
+  function patientFullName() {
+    return `${form.firstName} ${form.surname}`.trim() || form.name.trim();
+  }
+
+  function calculateAgeFromDob(dob: string) {
+    if (!dob) return "";
+    const birthDate = new Date(dob);
+    if (Number.isNaN(birthDate.getTime())) return "";
+
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+
+    if (
+      monthDiff < 0 ||
+      (monthDiff === 0 && today.getDate() < birthDate.getDate())
+    ) {
+      age -= 1;
+    }
+
+    return age >= 0 ? String(age) : "";
   }
 
   function normaliseId(value: string) {
@@ -269,6 +291,9 @@ export default function Page() {
     setForm((prev) => ({
       ...prev,
       name: existingName || prev.name,
+      firstName: patient.first_name || prev.firstName,
+      surname: patient.surname || patient.last_name || prev.surname,
+      email: patient.email || prev.email,
       idNumber:
         patient.patient_id ||
         patient.national_id ||
@@ -276,6 +301,7 @@ export default function Page() {
         prev.idNumber,
       dateOfBirth: patient.dob || patient.date_of_birth || prev.dateOfBirth,
       mobile: patient.phone || patient.mobile || prev.mobile,
+      age: calculateAgeFromDob(patient.dob || patient.date_of_birth || prev.dateOfBirth),
       gender: patient.gender ? patient.gender.toLowerCase() : prev.gender,
     }));
   }
@@ -326,7 +352,7 @@ export default function Page() {
       }
 
       setPatientLookupMessage(
-        "No existing CareScriber patient found. Complete the patient details below and SymptomAI will create the profile before referral.",
+        "No existing CareScriber patient found. Complete First Name, Surname, DOB, Gender and Mobile. SymptomAI will create the CareScriber patient profile before referral.",
       );
     } catch (error: any) {
       console.error("Patient lookup error:", error);
@@ -377,7 +403,8 @@ export default function Page() {
     const existingPatientId = await findExistingPatientId();
     if (existingPatientId) return existingPatientId;
 
-    const { firstName, surname } = splitName(form.name);
+    const firstName = form.firstName.trim() || "Patient";
+    const surname = form.surname.trim();
     const normalisedId = normaliseId(form.idNumber);
 
     const patientPayload = {
@@ -391,6 +418,7 @@ export default function Page() {
       date_of_birth: form.dateOfBirth || null,
       phone: form.mobile.trim() || null,
       mobile: form.mobile.trim() || null,
+      email: form.email.trim() || null,
       gender: form.gender || null,
       source: "SymptomAI",
       last_triage_at: new Date().toISOString(),
@@ -416,7 +444,7 @@ export default function Page() {
         {
           patient_id: patientId,
           national_id: normaliseId(form.idNumber) || null,
-          full_name: form.name.trim() || null,
+          full_name: patientFullName() || null,
           age: form.age || null,
           date_of_birth: form.dateOfBirth || null,
           gender: form.gender || null,
@@ -459,8 +487,8 @@ export default function Page() {
       return;
     }
 
-    if (!form.name.trim()) {
-      alert("Please enter the patient name before creating a referral.");
+    if (!form.firstName.trim() || !form.surname.trim()) {
+      alert("Please enter the patient first name and surname before creating a referral.");
       return;
     }
 
@@ -477,7 +505,7 @@ export default function Page() {
       expiresAt.setDate(expiresAt.getDate() + 7);
 
       const patientSnapshot = {
-        name: form.name,
+        name: patientFullName(),
         national_id: normaliseId(form.idNumber),
         date_of_birth: form.dateOfBirth,
         mobile: form.mobile,
@@ -496,7 +524,7 @@ export default function Page() {
           patient_id: patientId,
           triage_id: triageId,
           national_id: normaliseId(form.idNumber) || null,
-          patient_name: form.name.trim() || null,
+          patient_name: patientFullName() || null,
           referral_code: referralCode,
           consent_token: consentToken,
           consent_given: true,
@@ -603,10 +631,13 @@ export default function Page() {
   function reportText() {
     return `SYMPTOMAI TRIAGE REPORT
 
-Patient: ${form.name || "Not provided"}
+Patient: ${patientFullName() || "Not provided"}
+First name: ${form.firstName || "Not provided"}
+Surname: ${form.surname || "Not provided"}
 ID / Passport: ${form.idNumber || "Not provided"}
 Date of birth: ${form.dateOfBirth || "Not provided"}
 Mobile: ${form.mobile || "Not provided"}
+Email: ${form.email || "Not provided"}
 Age: ${form.age || "Not provided"}
 Gender: ${form.gender || "Not provided"}
 Pregnant: ${form.gender === "female" ? form.pregnant : "Not applicable"}
@@ -1256,6 +1287,16 @@ Generated by SymptomAI.`;
                 <div className="save-message">{patientLookupMessage}</div>
               )}
 
+              {selectedPatient && (
+                <div className="referral-box">
+                  <div className="referral-title">Existing CareScriber Patient Found</div>
+                  <div className="result-line"><b>Name:</b> {patientDisplayName(selectedPatient) || "Not recorded"}</div>
+                  <div className="result-line"><b>ID / Passport:</b> {selectedPatient.patient_id || selectedPatient.national_id || selectedPatient.id_number || "Not recorded"}</div>
+                  <div className="result-line"><b>DOB:</b> {selectedPatient.dob || selectedPatient.date_of_birth || "Not recorded"}</div>
+                  <div className="result-line"><b>Mobile:</b> {selectedPatient.phone || selectedPatient.mobile || "Not recorded"}</div>
+                </div>
+              )}
+
               <div className="grid">
                 <div>
                   <label>National ID / Passport number</label>
@@ -1285,11 +1326,34 @@ Generated by SymptomAI.`;
                 </div>
 
                 <div>
-                  <label>Full name</label>
+                  <label>First name</label>
                   <input
-                    value={form.name}
-                    onChange={(e) => update("name", e.target.value)}
-                    placeholder="Patient name"
+                    value={form.firstName}
+                    onChange={(e) => {
+                      const firstName = e.target.value;
+                      setForm((prev) => ({
+                        ...prev,
+                        firstName,
+                        name: `${firstName} ${prev.surname}`.trim(),
+                      }));
+                    }}
+                    placeholder="First name"
+                  />
+                </div>
+
+                <div>
+                  <label>Surname</label>
+                  <input
+                    value={form.surname}
+                    onChange={(e) => {
+                      const surname = e.target.value;
+                      setForm((prev) => ({
+                        ...prev,
+                        surname,
+                        name: `${prev.firstName} ${surname}`.trim(),
+                      }));
+                    }}
+                    placeholder="Surname"
                   />
                 </div>
 
@@ -1298,7 +1362,14 @@ Generated by SymptomAI.`;
                   <input
                     type="date"
                     value={form.dateOfBirth}
-                    onChange={(e) => update("dateOfBirth", e.target.value)}
+                    onChange={(e) => {
+                      const dateOfBirth = e.target.value;
+                      setForm((prev) => ({
+                        ...prev,
+                        dateOfBirth,
+                        age: calculateAgeFromDob(dateOfBirth),
+                      }));
+                    }}
                   />
                 </div>
 
@@ -1312,11 +1383,20 @@ Generated by SymptomAI.`;
                 </div>
 
                 <div>
-                  <label>Age</label>
+                  <label>Email address</label>
+                  <input
+                    value={form.email}
+                    onChange={(e) => update("email", e.target.value)}
+                    placeholder="patient@email.com"
+                  />
+                </div>
+
+                <div>
+                  <label>Age (calculated from DOB)</label>
                   <input
                     value={form.age}
                     onChange={(e) => update("age", e.target.value)}
-                    placeholder="Age"
+                    placeholder="Auto-calculated after DOB"
                   />
                 </div>
 
