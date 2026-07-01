@@ -42,6 +42,7 @@ type PatientLookupResult = {
   date_of_birth?: string | null;
   gender?: string | null;
   mobile?: string | null;
+  mobile_number?: string | null;
   phone?: string | null;
   email?: string | null;
 };
@@ -300,27 +301,68 @@ export default function Page() {
         patient.id_number ||
         prev.idNumber,
       dateOfBirth: patient.dob || patient.date_of_birth || prev.dateOfBirth,
-      mobile: patient.phone || patient.mobile || prev.mobile,
+      mobile: patient.mobile || patient.mobile_number || patient.phone || prev.mobile,
       age: calculateAgeFromDob(patient.dob || patient.date_of_birth || prev.dateOfBirth),
       gender: patient.gender ? patient.gender.toLowerCase() : prev.gender,
     }));
   }
 
   async function findExistingPatientById(idValue?: string) {
-    const lookupValue = normaliseId(idValue || form.idNumber);
+    const rawValue = (idValue || form.idNumber || "").trim();
+    const lookupValue = normaliseId(rawValue);
     if (!lookupValue) return null;
 
-    const fields = "id, first_name, surname, last_name, patient_id, national_id, id_number, dob, date_of_birth, gender, mobile, phone, email";
-    const columns = ["patient_id", "national_id", "id_number"];
+    const fields =
+      "id, first_name, surname, last_name, patient_id, national_id, id_number, dob, date_of_birth, gender, mobile, mobile_number, phone, email";
 
+    /*
+      CareScriber currently stores National ID / Passport mainly in patient_id.
+      Some older/future records may use national_id or id_number.
+      The database currently has duplicate rows for some IDs, so we must use
+      .limit(1) and never .single() / .maybeSingle() for lookup.
+    */
+    const columns = ["patient_id", "national_id", "id_number"];
+    const lookupAttempts = Array.from(
+      new Set([lookupValue, rawValue, rawValue.replace(/\s+/g, "")].filter(Boolean)),
+    );
+
+    for (const column of columns) {
+      for (const value of lookupAttempts) {
+        const { data, error } = await supabase
+          .from("patients")
+          .select(fields)
+          .eq(column, value)
+          .limit(1);
+
+        if (error) {
+          console.error(`Patient lookup error on ${column}:`, error);
+          continue;
+        }
+
+        if (data && data.length > 0 && data[0]?.id) {
+          return data[0] as PatientLookupResult;
+        }
+      }
+    }
+
+    /*
+      Fallback for records with accidental spaces or inconsistent casing.
+      This is slower than exact lookup but safer while historical duplicates
+      and older patient records are being cleaned.
+    */
     for (const column of columns) {
       const { data, error } = await supabase
         .from("patients")
         .select(fields)
-        .eq(column, lookupValue)
+        .ilike(column, `%${lookupValue}%`)
         .limit(1);
 
-      if (!error && data && data.length > 0 && data[0]?.id) {
+      if (error) {
+        console.error(`Patient fallback lookup error on ${column}:`, error);
+        continue;
+      }
+
+      if (data && data.length > 0 && data[0]?.id) {
         return data[0] as PatientLookupResult;
       }
     }
