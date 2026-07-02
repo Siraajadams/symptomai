@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "./lib/supabaseClient";
 
 type FormState = {
   name: string;
@@ -313,9 +312,6 @@ export default function Page() {
 
     if (!lookupValue) return null;
 
-    // IMPORTANT: do not query Supabase directly from the browser for this lookup.
-    // The CareScriber patients table is protected by RLS. This calls the secure
-    // server API route, which uses the Supabase service role key server-side only.
     const response = await fetch("/api/patient-lookup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
