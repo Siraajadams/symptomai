@@ -310,18 +310,28 @@ export default function Page() {
   async function findExistingPatientById(idValue?: string) {
     const rawValue = (idValue || form.idNumber || "").trim();
     const lookupValue = normaliseId(rawValue);
+
     if (!lookupValue) return null;
 
     const response = await fetch("/api/patient-lookup", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nationalId: lookupValue }),
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        patientId: lookupValue,
+        idNumber: lookupValue,
+        nationalId: lookupValue,
+        national_id: lookupValue,
+      }),
     });
 
     const payload = await response.json().catch(() => ({}));
 
-    if (!response.ok) {
-      throw new Error(payload?.error || "Could not search CareScriber patients.");
+    if (!response.ok || payload?.success === false) {
+      throw new Error(
+        payload?.error || "Could not search CareScriber patients."
+      );
     }
 
     if (payload?.found && payload?.patient?.id) {
