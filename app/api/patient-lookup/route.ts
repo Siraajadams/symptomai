@@ -10,19 +10,21 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
 
-    const patientId = (body.patientId || "").trim();
+    const patientId = String(
+      body.patientId ||
+        body.idNumber ||
+        body.nationalId ||
+        body.national_id ||
+        ""
+    ).trim();
 
     if (!patientId) {
       return NextResponse.json(
-        {
-          success: false,
-          error: "Patient ID is required",
-        },
+        { success: false, error: "Patient ID is required" },
         { status: 400 }
       );
     }
 
-    // Search CareScriber patients table
     const { data, error } = await supabase
       .from("patients")
       .select("*")
@@ -30,13 +32,8 @@ export async function POST(request: Request) {
       .limit(1);
 
     if (error) {
-      console.error(error);
-
       return NextResponse.json(
-        {
-          success: false,
-          error: error.message,
-        },
+        { success: false, error: error.message },
         { status: 500 }
       );
     }
@@ -53,29 +50,22 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       found: true,
-
       patient: {
         id: patient.id,
-        first_name: patient.first_name,
-        last_name: patient.last_name ?? patient.surname,
-        patient_id: patient.patient_id,
-        gender: patient.gender,
-        mobile: patient.mobile,
-        email: patient.email,
-        dob: patient.dob ?? patient.date_of_birth,
-        medical_aid: patient.medical_aid,
-        allergies: patient.allergies,
-        current_medicines: patient.current_medicines,
+        first_name: patient.first_name || "",
+        surname: patient.surname || patient.last_name || "",
+        last_name: patient.last_name || patient.surname || "",
+        patient_id: patient.patient_id || "",
+        gender: patient.gender || "",
+        mobile: patient.mobile || patient.mobile_number || "",
+        date_of_birth: patient.date_of_birth || patient.dob || "",
+        dob: patient.dob || patient.date_of_birth || "",
+        email: patient.email || "",
       },
     });
   } catch (err: any) {
-    console.error(err);
-
     return NextResponse.json(
-      {
-        success: false,
-        error: err.message,
-      },
+      { success: false, error: err.message || "Lookup failed" },
       { status: 500 }
     );
   }
