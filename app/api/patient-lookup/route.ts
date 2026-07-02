@@ -31,7 +31,6 @@ export async function POST(req: NextRequest) {
       .or(
         `patient_id.eq.${patientId},id_number.eq.${patientId},national_id.eq.${patientId}`
       )
-      .order("created_at", { ascending: false })
       .limit(1);
 
     if (error) {
@@ -44,17 +43,35 @@ export async function POST(req: NextRequest) {
 
     const p = data[0];
 
+    const firstName = p.first_name || "";
+    const surname = p.last_name || p.surname || "";
+    const idNumber = p.patient_id || p.id_number || p.national_id || "";
+    const dob = p.dob || p.date_of_birth || "";
+    const mobile = p.mobile || p.mobile_number || p.phone || "";
+
     return NextResponse.json({
       found: true,
       patient: {
         id: p.id,
-        firstName: p.first_name || "",
-        surname: p.last_name || p.surname || "",
-        patientId: p.patient_id || p.id_number || p.national_id || "",
+
+        // app/page.tsx expects these
+        first_name: firstName,
+        surname: surname,
+        last_name: surname,
+        patient_id: idNumber,
+        id_number: idNumber,
+        national_id: idNumber,
+        dob: dob,
+        date_of_birth: dob,
+        mobile: mobile,
+        mobile_number: mobile,
+        phone: mobile,
         gender: p.gender || "",
-        dob: p.dob || p.date_of_birth || "",
-        mobile: p.mobile || p.mobile_number || p.phone || "",
         email: p.email || "",
+
+        // also keep camelCase for future use
+        firstName,
+        patientId: idNumber,
       },
     });
   } catch (err: any) {
