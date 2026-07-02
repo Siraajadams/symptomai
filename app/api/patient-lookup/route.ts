@@ -9,16 +9,29 @@ const supabase = createClient(
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const patientId = String(body.patientId || "").trim();
+
+    const patientId = String(
+      body.patientId ||
+        body.idNumber ||
+        body.nationalId ||
+        body.national_id ||
+        ""
+    ).trim();
 
     if (!patientId) {
-      return NextResponse.json({ error: "Patient ID is required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Patient ID is required" },
+        { status: 400 }
+      );
     }
 
     const { data, error } = await supabase
       .from("patients")
       .select("*")
-      .eq("patient_id", patientId)
+      .or(
+        `patient_id.eq.${patientId},id_number.eq.${patientId},national_id.eq.${patientId}`
+      )
+      .order("created_at", { ascending: false })
       .limit(1);
 
     if (error) {
@@ -37,14 +50,17 @@ export async function POST(req: NextRequest) {
         id: p.id,
         firstName: p.first_name || "",
         surname: p.last_name || p.surname || "",
-        patientId: p.patient_id || "",
+        patientId: p.patient_id || p.id_number || p.national_id || "",
         gender: p.gender || "",
         dob: p.dob || p.date_of_birth || "",
-        mobile: p.mobile || p.mobile_number || "",
+        mobile: p.mobile || p.mobile_number || p.phone || "",
         email: p.email || "",
       },
     });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Lookup failed" }, { status: 500 });
+    return NextResponse.json(
+      { error: err.message || "Lookup failed" },
+      { status: 500 }
+    );
   }
 }
