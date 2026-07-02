@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
@@ -14,19 +14,52 @@ function generateConsentToken() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-export async function POST(request: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const body = await request.json();
+    const body = await req.json();
 
-    const patientId = body.patientId;
-    const triage = body.triage || {};
-    const patientSnapshot = body.patientSnapshot || {};
+    const patient = body.patient;
+    const triage = body.triage;
+
+    if (!patient?.nationalId) {
+      return NextResponse.json({ error: "Patient national ID is required" }, { status: 400 });
+    }
+
+    let patientId = patient.id || null;
+    let patientCreated = false;
 
     if (!patientId) {
-      return NextResponse.json(
-        { success: false, error: "patientId is required" },
-        { status: 400 }
-      );
+      const { data: existing } = await supabase
+        .from("patients")
+        .select("*")
+        .eq("patient_id", patient.nationalId)
+        .limit(1);
+
+      if (existing && existing.length > 0) {
+        patientId = existing[0].id;
+      } else {
+        const { data: created, error: createError } = await supabase
+          .from("patients")
+          .insert({
+            first_name: patient.firstName,
+            last_name: patient.surname,
+            patient_id: patient.nationalId,
+            dob: patient.dateOfBirth,
+            gender: patient.gender,
+            mobile: patient.mobile,
+            email: patient.email,
+            created_at: new Date().toISOString(),
+          })
+          .select("*")
+          .single();
+
+        if (createError) {
+          return NextResponse.json({ error: createError.message }, { status: 500 });
+        }
+
+        patientId = created.id;
+        patientCreated = true;
+      }
     }
 
     const referralCode = generateReferralCode();
@@ -35,7 +68,7 @@ export async function POST(request: Request) {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
 
-    const { data, error } = await supabase
+    const { data: referral, error: referralError } = await supabase
       .from("symptomai_referrals")
       .insert({
         patient_id: patientId,
@@ -45,37 +78,35 @@ export async function POST(request: Request) {
         status: "Pending",
         submitted_at: new Date().toISOString(),
         expires_at: expiresAt.toISOString(),
+        patient_snapshot: patient,
         triage_snapshot: triage,
-        patient_snapshot: patientSnapshot,
       })
       .select("*")
       .single();
 
-    if (error) {
-      console.error("Referral insert error:", error);
-
-      return NextResponse.json(
-        { success: false, error: error.message },
-        { status: 500 }
-      );
+    if (referralError) {
+      return NextResponse.json({ error: referralError.message }, { status: 500 });
     }
 
     return NextResponse.json({
-      success: true,
+      patientCreated,
+      patient: {
+        id: patientId,
+        first_name: patient.firstName,
+        surname: patient.surname,
+        patient_id: patient.nationalId,
+        dob: patient.dateOfBirth,
+        gender: patient.gender,
+        mobile: patient.mobile,
+        email: patient.email,
+      },
       referral: {
-        id: data.id,
-        referral_code: data.referral_code,
-        consent_token: data.consent_token,
-        expires_at: data.expires_at,
-        status: data.status,
+        referral_code: referral.referral_code,
+        consent_token: referral.consent_token,
+        expires_at: referral.expires_at,
       },
     });
   } catch (err: any) {
-    console.error("Referral API error:", err);
-
-    return NextResponse.json(
-      { success: false, error: err.message || "Referral failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err.message || "Referral failed" }, { status: 500 });
   }
 }
