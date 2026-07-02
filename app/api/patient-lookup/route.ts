@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
@@ -6,23 +6,13 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-export async function POST(request: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const body = await request.json();
-
-    const patientId = String(
-      body.patientId ||
-        body.idNumber ||
-        body.nationalId ||
-        body.national_id ||
-        ""
-    ).trim();
+    const body = await req.json();
+    const patientId = String(body.patientId || "").trim();
 
     if (!patientId) {
-      return NextResponse.json(
-        { success: false, error: "Patient ID is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Patient ID is required" }, { status: 400 });
     }
 
     const { data, error } = await supabase
@@ -32,41 +22,29 @@ export async function POST(request: Request) {
       .limit(1);
 
     if (error) {
-      return NextResponse.json(
-        { success: false, error: error.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     if (!data || data.length === 0) {
-      return NextResponse.json({
-        success: true,
-        found: false,
-      });
+      return NextResponse.json({ found: false });
     }
 
-    const patient = data[0];
+    const p = data[0];
 
     return NextResponse.json({
-      success: true,
       found: true,
       patient: {
-        id: patient.id,
-        first_name: patient.first_name || "",
-        surname: patient.surname || patient.last_name || "",
-        last_name: patient.last_name || patient.surname || "",
-        patient_id: patient.patient_id || "",
-        gender: patient.gender || "",
-        mobile: patient.mobile || patient.mobile_number || "",
-        date_of_birth: patient.date_of_birth || patient.dob || "",
-        dob: patient.dob || patient.date_of_birth || "",
-        email: patient.email || "",
+        id: p.id,
+        firstName: p.first_name || "",
+        surname: p.last_name || p.surname || "",
+        patientId: p.patient_id || "",
+        gender: p.gender || "",
+        dob: p.dob || p.date_of_birth || "",
+        mobile: p.mobile || p.mobile_number || "",
+        email: p.email || "",
       },
     });
   } catch (err: any) {
-    return NextResponse.json(
-      { success: false, error: err.message || "Lookup failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err.message || "Lookup failed" }, { status: 500 });
   }
 }
