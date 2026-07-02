@@ -312,59 +312,20 @@ export default function Page() {
     const lookupValue = normaliseId(rawValue);
     if (!lookupValue) return null;
 
-    const fields =
-      "id, first_name, surname, last_name, patient_id, national_id, id_number, dob, date_of_birth, gender, mobile, mobile_number, phone, email";
+    const response = await fetch("/api/patient-lookup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nationalId: lookupValue }),
+    });
 
-    /*
-      CareScriber currently stores National ID / Passport mainly in patient_id.
-      Some older/future records may use national_id or id_number.
-      The database currently has duplicate rows for some IDs, so we must use
-      .limit(1) and never .single() / .maybeSingle() for lookup.
-    */
-    const columns = ["patient_id", "national_id", "id_number"];
-    const lookupAttempts = Array.from(
-      new Set([lookupValue, rawValue, rawValue.replace(/\s+/g, "")].filter(Boolean)),
-    );
+    const payload = await response.json().catch(() => ({}));
 
-    for (const column of columns) {
-      for (const value of lookupAttempts) {
-        const { data, error } = await supabase
-          .from("patients")
-          .select(fields)
-          .eq(column, value)
-          .limit(1);
-
-        if (error) {
-          console.error(`Patient lookup error on ${column}:`, error);
-          continue;
-        }
-
-        if (data && data.length > 0 && data[0]?.id) {
-          return data[0] as PatientLookupResult;
-        }
-      }
+    if (!response.ok) {
+      throw new Error(payload?.error || "Could not search CareScriber patients.");
     }
 
-    /*
-      Fallback for records with accidental spaces or inconsistent casing.
-      This is slower than exact lookup but safer while historical duplicates
-      and older patient records are being cleaned.
-    */
-    for (const column of columns) {
-      const { data, error } = await supabase
-        .from("patients")
-        .select(fields)
-        .ilike(column, `%${lookupValue}%`)
-        .limit(1);
-
-      if (error) {
-        console.error(`Patient fallback lookup error on ${column}:`, error);
-        continue;
-      }
-
-      if (data && data.length > 0 && data[0]?.id) {
-        return data[0] as PatientLookupResult;
-      }
+    if (payload?.found && payload?.patient?.id) {
+      return payload.patient as PatientLookupResult;
     }
 
     return null;
@@ -416,106 +377,61 @@ export default function Page() {
       return patientById.id;
     }
 
-    if (form.mobile.trim()) {
-      const fields = "id, first_name, surname, last_name, patient_id, national_id, id_number, dob, date_of_birth, gender, mobile, phone, email";
-      const mobileValue = form.mobile.trim();
-      const phoneColumns = ["phone", "mobile"];
-
-      for (const column of phoneColumns) {
-        const { data, error } = await supabase
-          .from("patients")
-          .select(fields)
-          .eq(column, mobileValue)
-          .limit(1);
-
-        if (!error && data && data.length > 0 && data[0]?.id) {
-          const patient = data[0] as PatientLookupResult;
-          setSelectedPatientId(patient.id);
-          setSelectedPatient(patient);
-          applyPatientToForm(patient);
-          return patient.id;
-        }
-      }
-    }
-
     return null;
   }
 
-  async function createPatientForReferral() {
-    const existingPatientId = await findExistingPatientId();
-    if (existingPatientId) return existingPatientId;
-
-    const firstName = form.firstName.trim() || "Patient";
-    const surname = form.surname.trim();
-    const normalisedId = normaliseId(form.idNumber);
-
+  async function submitReferralViaApi(decision: TriageResult) {
     const patientPayload = {
-      first_name: firstName,
-      surname: surname,
-      last_name: surname,
-      patient_id: normalisedId || null,
-      national_id: normalisedId || null,
-      id_number: normalisedId || null,
-      dob: form.dateOfBirth || null,
-      date_of_birth: form.dateOfBirth || null,
-      phone: form.mobile.trim() || null,
+      firstName: form.firstName.trim(),
+      surname: form.surname.trim(),
+      nationalId: normaliseId(form.idNumber),
+      dateOfBirth: form.dateOfBirth || null,
       mobile: form.mobile.trim() || null,
       email: form.email.trim() || null,
       gender: form.gender || null,
-      source: "SymptomAI",
-      last_triage_at: new Date().toISOString(),
+      age: form.age || calculateAgeFromDob(form.dateOfBirth) || null,
+      country: form.country || null,
+      city: form.city || null,
     };
 
-    const { data, error } = await supabase
-      .from("patients")
-      .insert([patientPayload])
-      .select("id")
-      .single();
+    const triagePayload = {
+      pregnant: form.gender === "female" ? form.pregnant : "not_applicable",
+      country: form.country || null,
+      city: form.city || null,
+      heightCm: form.heightCm || null,
+      weightKg: form.weightKg || null,
+      bmi: bmi || null,
+      symptomDuration: form.duration || null,
+      symptoms: form.symptoms,
+      redFlags: form.redFlags,
+      notes: form.notes || null,
+      triageLevel: decision.level,
+      destination: decision.destination,
+      urgency: decision.urgency,
+      advice: decision.advice,
+      summary: decision.summary,
+      reasoning: decision.reasoning,
+      routeType: decision.routeType,
+    };
 
-    if (error) throw error;
-    if (!data?.id) throw new Error("Could not create patient profile.");
+    const response = await fetch("/api/symptomai-referral", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ patient: patientPayload, triage: triagePayload }),
+    });
 
-    setSelectedPatientId(data.id as string);
-    return data.id as string;
-  }
+    const payload = await response.json().catch(() => ({}));
 
-  async function saveSymptomAITriage(patientId: string, decision: TriageResult) {
-    const { data, error } = await supabase
-      .from("symptomai_triage")
-      .insert([
-        {
-          patient_id: patientId,
-          national_id: normaliseId(form.idNumber) || null,
-          full_name: patientFullName() || null,
-          age: form.age || null,
-          date_of_birth: form.dateOfBirth || null,
-          gender: form.gender || null,
-          pregnant: form.gender === "female" ? form.pregnant : "not_applicable",
-          country: form.country || null,
-          city: form.city || null,
-          mobile: form.mobile.trim() || null,
-          height_cm: form.heightCm || null,
-          weight_kg: form.weightKg || null,
-          bmi: bmi || null,
-          symptom_duration: form.duration || null,
-          symptoms: form.symptoms,
-          red_flags: form.redFlags,
-          notes: form.notes || null,
-          triage_level: decision.level,
-          destination: decision.destination,
-          urgency: decision.urgency,
-          advice: decision.advice,
-          summary: decision.summary,
-          reasoning: decision.reasoning,
-          route_type: decision.routeType,
-          source: "SymptomAI",
-        },
-      ])
-      .select("id")
-      .single();
+    if (!response.ok) {
+      throw new Error(payload?.error || "Could not create CareScriber referral.");
+    }
 
-    if (error) throw error;
-    return data?.id as string | null;
+    return payload as {
+      patient: PatientLookupResult;
+      referral: ReferralDetails;
+      triageId?: string | null;
+      patientCreated?: boolean;
+    };
   }
 
   async function generateCareScriberReferral() {
@@ -538,58 +454,20 @@ export default function Page() {
     setReferralMessage("");
 
     try {
-      const patientId = await createPatientForReferral();
-      const triageId = await saveSymptomAITriage(patientId, result);
-      const referralCode = generateReferralCode();
-      const consentToken = generateConsentToken();
+      const apiResult = await submitReferralViaApi(result);
 
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 7);
+      if (apiResult.patient?.id) {
+        setSelectedPatientId(apiResult.patient.id);
+        setSelectedPatient(apiResult.patient);
+        applyPatientToForm(apiResult.patient);
+      }
 
-      const patientSnapshot = {
-        name: patientFullName(),
-        national_id: normaliseId(form.idNumber),
-        date_of_birth: form.dateOfBirth,
-        mobile: form.mobile,
-        age: form.age,
-        gender: form.gender,
-        country: form.country,
-        city: form.city,
-        symptoms: form.symptoms,
-        red_flags: form.redFlags,
-        notes: form.notes,
-        bmi,
-      };
-
-      const { error } = await supabase.from("symptomai_referrals").insert([
-        {
-          patient_id: patientId,
-          triage_id: triageId,
-          national_id: normaliseId(form.idNumber) || null,
-          patient_name: patientFullName() || null,
-          referral_code: referralCode,
-          consent_token: consentToken,
-          consent_given: true,
-          consent_expires_at: expiresAt.toISOString(),
-          referral_source: "SymptomAI",
-          referral_reason: result.destination,
-          urgency: result.urgency,
-          triage_summary: result.summary,
-          patient_snapshot: patientSnapshot,
-          status: "Pending",
-        },
-      ]);
-
-      if (error) throw error;
-
-      setReferral({
-        referral_code: referralCode,
-        consent_token: consentToken,
-        expires_at: expiresAt.toISOString(),
-      });
+      setReferral(apiResult.referral);
 
       setReferralMessage(
-        "CareScriber referral created. Share the referral code and consent token with the doctor.",
+        apiResult.patientCreated
+          ? "New CareScriber patient profile created and referral generated. Share the referral code and consent token with the doctor."
+          : "Existing CareScriber patient found and referral generated. Share the referral code and consent token with the doctor.",
       );
     } catch (error: any) {
       console.error("Referral error:", error);
