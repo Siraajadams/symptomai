@@ -313,11 +313,12 @@ export default function Page() {
 
     if (!lookupValue) return null;
 
+    // IMPORTANT: do not query Supabase directly from the browser for this lookup.
+    // The CareScriber patients table is protected by RLS. This calls the secure
+    // server API route, which uses the Supabase service role key server-side only.
     const response = await fetch("/api/patient-lookup", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         patientId: lookupValue,
         idNumber: lookupValue,
@@ -329,9 +330,7 @@ export default function Page() {
     const payload = await response.json().catch(() => ({}));
 
     if (!response.ok || payload?.success === false) {
-      throw new Error(
-        payload?.error || "Could not search CareScriber patients."
-      );
+      throw new Error(payload?.error || "Could not search CareScriber patients.");
     }
 
     if (payload?.found && payload?.patient?.id) {
