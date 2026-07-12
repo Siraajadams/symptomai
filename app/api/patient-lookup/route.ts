@@ -1,83 +1,80 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+async function lookupPatient() {
+  const cleanPatientId = patientId.replace(/\s+/g, "").trim();
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+  if (!cleanPatientId) {
+    setLookupMessage("Enter a National ID or passport number.");
+    return;
+  }
 
-export async function POST(req: NextRequest) {
+  setSearching(true);
+  setLookupMessage("");
+
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 15000);
+
   try {
-    const body = await req.json();
+    const response = await fetch("/api/patient-lookup", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        patientId: cleanPatientId,
+      }),
+      signal: controller.signal,
+      cache: "no-store",
+    });
 
-    const patientId = String(
-      body.patientId ||
-        body.idNumber ||
-        body.nationalId ||
-        body.national_id ||
-        ""
-    ).trim();
+    const responseText = await response.text();
 
-    if (!patientId) {
-      return NextResponse.json(
-        { error: "Patient ID is required" },
-        { status: 400 }
+    let data: any = null;
+
+    try {
+      data = responseText ? JSON.parse(responseText) : null;
+    } catch {
+      throw new Error(
+        responseText || "The patient lookup returned an invalid response."
       );
     }
 
-    const { data, error } = await supabase
-      .from("patients")
-      .select("*")
-      .or(
-        `patient_id.eq.${patientId},id_number.eq.${patientId},national_id.eq.${patientId}`
-      )
-      .limit(1);
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!response.ok) {
+      throw new Error(data?.error || "Patient lookup failed.");
     }
 
-    if (!data || data.length === 0) {
-      return NextResponse.json({ found: false });
+    if (data?.found && data?.patient) {
+      const patient = data.patient;
+
+      setFirstName(patient.firstName || patient.first_name || "");
+      setSurname(patient.surname || "");
+      setEmail(patient.email || "");
+      setMobile(patient.mobile || "");
+      setGender(patient.gender || "");
+      setDateOfBirth(patient.dateOfBirth || patient.date_of_birth || "");
+
+      setLookupMessage(
+        `Existing patient found: ${
+          patient.firstName || patient.first_name || ""
+        } ${patient.surname || ""}`.trim()
+      );
+    } else {
+      setLookupMessage(
+        "No existing patient was found. Please continue completing the form."
+      );
     }
-
-    const p = data[0];
-
-    const firstName = p.first_name || "";
-    const surname = p.last_name || p.surname || "";
-    const idNumber = p.patient_id || p.id_number || p.national_id || "";
-    const dob = p.dob || p.date_of_birth || "";
-    const mobile = p.mobile || p.mobile_number || p.phone || "";
-
-    return NextResponse.json({
-      found: true,
-      patient: {
-        id: p.id,
-
-        // app/page.tsx expects these
-        first_name: firstName,
-        surname: surname,
-        last_name: surname,
-        patient_id: idNumber,
-        id_number: idNumber,
-        national_id: idNumber,
-        dob: dob,
-        date_of_birth: dob,
-        mobile: mobile,
-        mobile_number: mobile,
-        phone: mobile,
-        gender: p.gender || "",
-        email: p.email || "",
-
-        // also keep camelCase for future use
-        firstName,
-        patientId: idNumber,
-      },
-    });
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: err.message || "Lookup failed" },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    if (error instanceof Error && error.name === "AbortError") {
+      setLookupMessage(
+        "The patient search took too long. Please check your connection and try again."
+      );
+    } else {
+      setLookupMessage(
+        error instanceof Error
+          ? error.message
+          : "The patient search could not be completed."
+      );
+    }
+  } finally {
+    window.clearTimeout(timeout);
+    setSearching(false);
   }
 }
