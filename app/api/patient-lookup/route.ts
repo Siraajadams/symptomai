@@ -1,80 +1,127 @@
-async function lookupPatient() {
-  const cleanPatientId = patientId.replace(/\s+/g, "").trim();
+import { NextRequest, NextResponse } from "next/server";
 
-  if (!cleanPatientId) {
-    setLookupMessage("Enter a National ID or passport number.");
-    return;
-  }
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-  setSearching(true);
-  setLookupMessage("");
+type LookupBody = {
+  patientId?: string;
+};
 
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 15000);
-
+export async function POST(req: NextRequest) {
   try {
-    const response = await fetch("/api/patient-lookup", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        patientId: cleanPatientId,
-      }),
-      signal: controller.signal,
-      cache: "no-store",
-    });
+    const body = (await req.json()) as LookupBody;
 
-    const responseText = await response.text();
+    const patientId = String(body.patientId || "")
+      .replace(/\s+/g, "")
+      .trim();
 
-    let data: any = null;
+    if (!patientId) {
+      return NextResponse.json(
+        {
+          found: false,
+          error: "Patient ID is required.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const careScriberUrl =
+      process.env.CARESCRIBER_API_URL?.trim().replace(/\/+$/, "");
+
+    if (!careScriberUrl) {
+      console.error(
+        "SYMPTOMAI LOOKUP: CARESCRIBER_API_URL is not configured."
+      );
+
+      return NextResponse.json(
+        {
+          found: false,
+          error: "The patient search service is not configured.",
+        },
+        { status: 500 }
+      );
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
 
     try {
-      data = responseText ? JSON.parse(responseText) : null;
-    } catch {
-      throw new Error(
-        responseText || "The patient lookup returned an invalid response."
+      const response = await fetch(
+        `${careScriberUrl}/api/patient-lookup`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            patientId,
+          }),
+          signal: controller.signal,
+          cache: "no-store",
+        }
       );
-    }
 
-    if (!response.ok) {
-      throw new Error(data?.error || "Patient lookup failed.");
-    }
+      const responseText = await response.text();
 
-    if (data?.found && data?.patient) {
-      const patient = data.patient;
+      let data: any = null;
 
-      setFirstName(patient.firstName || patient.first_name || "");
-      setSurname(patient.surname || "");
-      setEmail(patient.email || "");
-      setMobile(patient.mobile || "");
-      setGender(patient.gender || "");
-      setDateOfBirth(patient.dateOfBirth || patient.date_of_birth || "");
+      try {
+        data = responseText ? JSON.parse(responseText) : null;
+      } catch {
+        console.error(
+          "SYMPTOMAI LOOKUP: Invalid CareScriber response:",
+          responseText
+        );
 
-      setLookupMessage(
-        `Existing patient found: ${
-          patient.firstName || patient.first_name || ""
-        } ${patient.surname || ""}`.trim()
-      );
-    } else {
-      setLookupMessage(
-        "No existing patient was found. Please continue completing the form."
-      );
+        return NextResponse.json(
+          {
+            found: false,
+            error: "The patient service returned an invalid response.",
+          },
+          { status: 502 }
+        );
+      }
+
+      if (!response.ok) {
+        console.error("SYMPTOMAI LOOKUP: CareScriber lookup failed:", {
+          status: response.status,
+          data,
+        });
+
+        return NextResponse.json(
+          {
+            found: false,
+            error:
+              data?.error ||
+              "The patient could not be searched at this time.",
+          },
+          { status: response.status }
+        );
+      }
+
+      return NextResponse.json({
+        found: Boolean(data?.found),
+        patient: data?.patient || null,
+      });
+    } finally {
+      clearTimeout(timeout);
     }
   } catch (error: unknown) {
-    if (error instanceof Error && error.name === "AbortError") {
-      setLookupMessage(
-        "The patient search took too long. Please check your connection and try again."
-      );
-    } else {
-      setLookupMessage(
-        error instanceof Error
-          ? error.message
-          : "The patient search could not be completed."
-      );
-    }
-  } finally {
-    window.clearTimeout(timeout);
-    setSearching(false);
+    const message =
+      error instanceof Error
+        ? error.name === "AbortError"
+          ? "The patient search service timed out."
+          : error.message
+        : "Unexpected patient lookup error.";
+
+    console.error("SYMPTOMAI PATIENT LOOKUP ERROR:", error);
+
+    return NextResponse.json(
+      {
+        found: false,
+        error: message,
+      },
+      { status: 500 }
+    );
   }
 }
