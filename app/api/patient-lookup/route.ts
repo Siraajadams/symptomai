@@ -1,190 +1,132 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type LookupRequest = {
-  patientId?: string;
-};
+function normalizePatientId(value: unknown) {
+  return String(value || "")
+    .replace(/\s+/g, "")
+    .replace(/-/g, "")
+    .trim();
+}
+
+function getSupabaseAdmin() {
+  const supabaseUrl =
+    process.env.CARESCRIBER_SUPABASE_URL?.trim() ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+
+  const serviceRoleKey =
+    process.env.CARESCRIBER_SUPABASE_SERVICE_ROLE_KEY?.trim() ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+
+  if (!supabaseUrl) {
+    throw new Error("CareScriber Supabase URL is missing.");
+  }
+
+  if (!serviceRoleKey) {
+    throw new Error("CareScriber Supabase service-role key is missing.");
+  }
+
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
 
 export async function POST(req: NextRequest) {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-
   try {
-    const body = (await req.json()) as LookupRequest;
-
-    const patientId = String(body.patientId || "")
-      .replace(/\s+/g, "")
-      .trim();
+    const body = await req.json();
+    const patientId = normalizePatientId(body.patientId);
 
     if (!patientId) {
       return NextResponse.json(
         {
           found: false,
-          error: "National ID or passport number is required.",
+          error: "Patient ID is required.",
         },
         { status: 400 }
       );
     }
 
-    const careScriberBaseUrl = String(
-      process.env.CARESCRIBER_API_URL || ""
-    )
-      .trim()
-      .replace(/\/+$/, "");
+    const supabase = getSupabaseAdmin();
 
-    if (!careScriberBaseUrl) {
-      console.error(
-        "SYMPTOMAI PATIENT LOOKUP: CARESCRIBER_API_URL is missing."
-      );
+    const { data, error } = await supabase
+      .from("patients")
+      .select(`
+        id,
+        first_name,
+        last_name,
+        surname,
+        patient_id,
+        id_number,
+        national_id,
+        dob,
+        date_of_birth,
+        gender,
+        mobile,
+        mobile_number,
+        email
+      `)
+      .or(
+        [
+          `patient_id.eq.${patientId}`,
+          `id_number.eq.${patientId}`,
+          `national_id.eq.${patientId}`,
+        ].join(",")
+      )
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Patient lookup error:", error);
 
       return NextResponse.json(
         {
           found: false,
-          error: "The live patient lookup service is not configured.",
+          error: `Patient lookup failed: ${error.message}`,
         },
         { status: 500 }
       );
     }
 
-    if (
-      careScriberBaseUrl.includes("localhost") ||
-      careScriberBaseUrl.includes("127.0.0.1")
-    ) {
-      console.error(
-        "SYMPTOMAI PATIENT LOOKUP: Localhost URL blocked in production."
-      );
-
-      return NextResponse.json(
-        {
-          found: false,
-          error: "The patient lookup service has an invalid production URL.",
-        },
-        { status: 500 }
-      );
+    if (!data) {
+      return NextResponse.json({
+        found: false,
+      });
     }
 
-    const controller = new AbortController();
-
-    timeout = setTimeout(() => {
-      controller.abort();
-    }, 15000);
-
-    const targetUrl =
-      `${careScriberBaseUrl}/api/patient-lookup`;
-
-    console.log("SYMPTOMAI PATIENT LOOKUP:", {
-      targetUrl,
-      patientIdLength: patientId.length,
-    });
-
-    const response = await fetch(targetUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
+    return NextResponse.json({
+      found: true,
+      patient: {
+        id: data.id,
+        firstName: data.first_name || "",
+        surname: data.last_name || data.surname || "",
+        patientId:
+          data.patient_id ||
+          data.id_number ||
+          data.national_id ||
+          patientId,
+        dateOfBirth: data.dob || data.date_of_birth || "",
+        gender: data.gender || "",
+        mobile: data.mobile || data.mobile_number || "",
+        email: data.email || "",
       },
-      body: JSON.stringify({
-        patientId,
-      }),
-      signal: controller.signal,
-      cache: "no-store",
     });
-
-    const responseText = await response.text();
-
-    let data: any = null;
-
-    try {
-      data = responseText ? JSON.parse(responseText) : null;
-    } catch {
-      console.error(
-        "SYMPTOMAI PATIENT LOOKUP: Invalid API response:",
-        {
-          status: response.status,
-          responseText,
-        }
-      );
-
-      return NextResponse.json(
-        {
-          found: false,
-          error:
-            "The patient service returned an unreadable response.",
-        },
-        { status: 502 }
-      );
-    }
-
-    if (!response.ok) {
-      console.error(
-        "SYMPTOMAI PATIENT LOOKUP: CareScriber API error:",
-        {
-          status: response.status,
-          data,
-        }
-      );
-
-      return NextResponse.json(
-        {
-          found: false,
-          error:
-            data?.error ||
-            data?.message ||
-            "The patient search could not be completed.",
-        },
-        {
-          status:
-            response.status >= 400 && response.status <= 599
-              ? response.status
-              : 502,
-        }
-      );
-    }
-
-    return NextResponse.json(
-      {
-        found: Boolean(data?.found),
-        patient: data?.patient || null,
-        message:
-          data?.message ||
-          (data?.found
-            ? "Existing patient found."
-            : "No existing patient was found."),
-      },
-      {
-        status: 200,
-        headers: {
-          "Cache-Control": "no-store, max-age=0",
-        },
-      }
-    );
   } catch (error: unknown) {
-    const isTimeout =
-      error instanceof Error &&
-      error.name === "AbortError";
+    const message =
+      error instanceof Error ? error.message : "Patient lookup failed.";
 
-    const message = isTimeout
-      ? "The live patient search took too long. Please try again."
-      : error instanceof Error
-        ? error.message
-        : "Unexpected patient lookup error.";
-
-    console.error(
-      "SYMPTOMAI PATIENT LOOKUP ERROR:",
-      error
-    );
+    console.error("Patient lookup route error:", error);
 
     return NextResponse.json(
       {
         found: false,
         error: message,
       },
-      { status: isTimeout ? 504 : 500 }
+      { status: 500 }
     );
-  } finally {
-    if (timeout) {
-      clearTimeout(timeout);
-    }
   }
 }
