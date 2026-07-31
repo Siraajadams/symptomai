@@ -29,7 +29,19 @@ type ReferralDetails = {
   expires_at: string;
 };
 
-type PaymentStatus = "not_started" | "pending" | "paid" | "failed";
+type PaymentStatus =
+  | "not_started"
+  | "pending"
+  | "verifying"
+  | "paid"
+  | "failed";
+
+type PaymentConfirmation = {
+  referralCode: string | null;
+  consultationReason: string | null;
+  amountTotal: number | null;
+  currency: string | null;
+};
 
 type PatientLookupResult = {
   id: string;
@@ -204,6 +216,8 @@ export default function Page() {
   const [paymentStatus, setPaymentStatus] =
     useState<PaymentStatus>("not_started");
   const [paymentMessage, setPaymentMessage] = useState("");
+  const [paymentConfirmation, setPaymentConfirmation] =
+    useState<PaymentConfirmation | null>(null);
 
   useEffect(() => {
     const handler = (e: any) => {
@@ -213,20 +227,71 @@ export default function Page() {
 
     window.addEventListener("beforeinstallprompt", handler);
 
-    const params = new URLSearchParams(window.location.search);
-    const payment = params.get("payment");
+    async function verifyReturnedPayment() {
+      const params = new URLSearchParams(window.location.search);
+      const payment = params.get("payment");
+      const sessionId = params.get("session_id");
 
-    if (payment === "success") {
-      setPaymentStatus("paid");
-      setPaymentMessage(
-        "Payment confirmed. Your referral is ready for the CareScriber doctor inbox.",
-      );
-    } else if (payment === "cancelled" || payment === "failed") {
-      setPaymentStatus("failed");
-      setPaymentMessage(
-        "Payment was not completed. Please try again when you are ready.",
-      );
+      if (payment === "success" && sessionId) {
+        setPaymentStatus("verifying");
+        setPaymentMessage("Verifying your Stripe payment...");
+
+        try {
+          const response = await fetch(
+            `/api/virtual-consult-payment/status?session_id=${encodeURIComponent(
+              sessionId,
+            )}`,
+            { method: "GET", cache: "no-store" },
+          );
+
+          const payload = await response.json().catch(() => ({}));
+
+          if (!response.ok) {
+            throw new Error(payload?.error || "Could not verify the payment.");
+          }
+
+          if (payload?.paid !== true) {
+            throw new Error(
+              "Stripe has not confirmed this payment as paid. Please check again or contact support.",
+            );
+          }
+
+          setPaymentStatus("paid");
+          setPaymentConfirmation({
+            referralCode: payload?.referralCode || params.get("referral_code"),
+            consultationReason: payload?.consultationReason || null,
+            amountTotal:
+              typeof payload?.amountTotal === "number"
+                ? payload.amountTotal
+                : null,
+            currency: payload?.currency || null,
+          });
+          setPaymentMessage(
+            "Payment confirmed. Your referral has been released to the CareScriber doctor inbox.",
+          );
+        } catch (error: unknown) {
+          console.error("Payment verification error:", error);
+          setPaymentStatus("failed");
+          setPaymentMessage(
+            error instanceof Error
+              ? error.message
+              : "Could not verify the payment.",
+          );
+        }
+      } else if (payment === "success") {
+        setPaymentStatus("failed");
+        setPaymentMessage(
+          "Stripe returned without a payment session ID, so the payment could not be verified.",
+        );
+      } else if (payment === "cancelled" || payment === "failed") {
+        setPaymentStatus("failed");
+        setPaymentMessage(
+          "Payment was not completed. Your referral remains unpaid and you may try again.",
+        );
+      }
     }
+
+    void verifyReturnedPayment();
 
     return () => window.removeEventListener("beforeinstallprompt", handler);
   }, []);
@@ -513,7 +578,9 @@ export default function Page() {
       return;
     }
 
-    if (!consultationReason.trim()) {
+    const reason = consultationReason.trim();
+
+    if (!reason) {
       alert("Please enter the reason for consultation or prescription request.");
       return;
     }
@@ -522,33 +589,16 @@ export default function Page() {
     setPaymentMessage("");
 
     try {
-      const returnUrl = new URL(window.location.href);
-      returnUrl.searchParams.set("payment", "success");
-      returnUrl.searchParams.set("referral_code", referral.referral_code);
-
-      const cancelUrl = new URL(window.location.href);
-      cancelUrl.searchParams.set("payment", "cancelled");
-      cancelUrl.searchParams.set("referral_code", referral.referral_code);
-
       const response = await fetch("/api/virtual-consult-payment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          amount: 250,
-          currency: "ZAR",
           referralCode: referral.referral_code,
           consentToken: referral.consent_token,
-          consultationReason: consultationReason.trim(),
-          patientId: selectedPatientId,
-          patient: {
-            firstName: form.firstName.trim(),
-            surname: form.surname.trim(),
-            idNumber: normaliseId(form.idNumber),
-            mobile: form.mobile.trim() || null,
-            email: form.email.trim() || null,
-          },
-          successUrl: returnUrl.toString(),
-          cancelUrl: cancelUrl.toString(),
+          consultationReason: reason,
+          patientName: patientFullName(),
+          patientEmail: form.email.trim() || undefined,
+          patientId: selectedPatientId || normaliseId(form.idNumber),
         }),
       });
 
@@ -556,15 +606,19 @@ export default function Page() {
 
       if (!response.ok || !payload?.checkoutUrl) {
         throw new Error(
-          payload?.error || "Could not create the R250 payment link.",
+          payload?.error || "Could not create the R250 Stripe payment link.",
         );
       }
 
-      window.location.href = payload.checkoutUrl;
-    } catch (error: any) {
+      window.location.assign(payload.checkoutUrl);
+    } catch (error: unknown) {
       console.error("Payment error:", error);
       setPaymentStatus("failed");
-      setPaymentMessage(error.message || "Could not start payment.");
+      setPaymentMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not start the Stripe payment.",
+      );
     }
   }
 
@@ -599,6 +653,7 @@ export default function Page() {
     setConsultationReason("");
     setPaymentStatus("not_started");
     setPaymentMessage("");
+    setPaymentConfirmation(null);
   }
 
   function pharmacyMapByCity() {
@@ -1147,6 +1202,46 @@ Generated by SymptomAI.`;
           </div>
         </div>
 
+        {(paymentStatus === "verifying" ||
+          paymentStatus === "paid" ||
+          (paymentStatus === "failed" && paymentMessage)) && (
+          <section className="card">
+            {paymentStatus === "verifying" && (
+              <div className="save-message">{paymentMessage}</div>
+            )}
+
+            {paymentStatus === "paid" && (
+              <div className="payment-confirmation" style={{ marginTop: 0 }}>
+                <div className="referral-title">Stripe Payment Confirmed</div>
+                <p style={{ color: "#12382a", marginBottom: 8 }}>
+                  {paymentMessage}
+                </p>
+                {paymentConfirmation?.referralCode && (
+                  <div style={{ marginTop: 10 }}>
+                    <b>Referral code:</b> {paymentConfirmation.referralCode}
+                  </div>
+                )}
+                {paymentConfirmation?.consultationReason && (
+                  <div style={{ marginTop: 10 }}>
+                    <b>Reason:</b> {paymentConfirmation.consultationReason}
+                  </div>
+                )}
+                <div style={{ marginTop: 10 }}>
+                  <b>Doctor availability:</b> Daily from 09:00 to 21:00.
+                  Requests received outside these hours will be attended to from
+                  09:00 the following day.
+                </div>
+              </div>
+            )}
+
+            {paymentStatus === "failed" && paymentMessage && (
+              <div className="payment-error" style={{ marginTop: 0 }}>
+                {paymentMessage}
+              </div>
+            )}
+          </section>
+        )}
+
         {result ? (
           <section
             className={`card result ${
@@ -1230,13 +1325,16 @@ Generated by SymptomAI.`;
                     disabled={
                       !consultationReason.trim() ||
                       paymentStatus === "pending" ||
+                      paymentStatus === "verifying" ||
                       paymentStatus === "paid"
                     }
                     style={{ width: "100%", marginTop: 16 }}
                   >
                     {paymentStatus === "pending"
                       ? "Preparing secure payment..."
-                      : paymentStatus === "paid"
+                      : paymentStatus === "verifying"
+                        ? "Verifying payment..."
+                        : paymentStatus === "paid"
                         ? "R250 Payment Confirmed"
                         : "Pay R250 for Virtual GP Consultation"}
                   </button>
