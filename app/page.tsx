@@ -133,6 +133,35 @@ const redFlags = [
   "Severe headache / worst headache",
 ];
 
+
+const PAYMENT_CONTEXT_KEY = "symptomai_virtual_consult_context";
+
+function getJohannesburgMinutes() {
+  const parts = new Intl.DateTimeFormat("en-ZA", {
+    timeZone: "Africa/Johannesburg",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+
+  const hour = Number(
+    parts.find((part) => part.type === "hour")?.value || "0",
+  );
+  const minute = Number(
+    parts.find((part) => part.type === "minute")?.value || "0",
+  );
+
+  return hour * 60 + minute;
+}
+
+function isCurrentlyAfterHours() {
+  const currentMinutes = getJohannesburgMinutes();
+  const openingMinutes = 9 * 60;
+  const closingMinutes = 21 * 60;
+
+  return currentMinutes < openingMinutes || currentMinutes >= closingMinutes;
+}
+
 function decideTriage(form: FormState): TriageResult {
   const emergencySymptoms = ["Poisoning", "Palpitations", "Blurred Vision"];
 
@@ -211,13 +240,14 @@ export default function Page() {
   const [patientLookupLoading, setPatientLookupLoading] = useState(false);
   const [patientLookupMessage, setPatientLookupMessage] = useState("");
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
-  const [selectedPatient, setSelectedPatient] = useState<PatientLookupResult | null>(null);
+  const [selectedPatient, setSelectedPatient] =\n    useState<PatientLookupResult | null>(null);
   const [consultationReason, setConsultationReason] = useState("");
   const [paymentStatus, setPaymentStatus] =
     useState<PaymentStatus>("not_started");
   const [paymentMessage, setPaymentMessage] = useState("");
   const [paymentConfirmation, setPaymentConfirmation] =
     useState<PaymentConfirmation | null>(null);
+  const [afterHours, setAfterHours] = useState(false);
 
   useEffect(() => {
     const handler = (e: any) => {
@@ -227,10 +257,47 @@ export default function Page() {
 
     window.addEventListener("beforeinstallprompt", handler);
 
+    const updateAvailability = () => {
+      setAfterHours(isCurrentlyAfterHours());
+    };
+
+    updateAvailability();
+    const availabilityTimer = window.setInterval(updateAvailability, 60_000);
+
     async function verifyReturnedPayment() {
       const params = new URLSearchParams(window.location.search);
       const payment = params.get("payment");
       const sessionId = params.get("session_id");
+
+      let restoredReferral: ReferralDetails | null = null;
+      let restoredReason = "";
+
+      try {
+        const storedContext = window.localStorage.getItem(PAYMENT_CONTEXT_KEY);
+
+        if (storedContext) {
+          const parsed = JSON.parse(storedContext);
+
+          if (parsed?.form) setForm(parsed.form);
+          if (parsed?.result) setResult(parsed.result);
+
+          if (parsed?.referral) {
+            restoredReferral = parsed.referral;
+            setReferral(parsed.referral);
+          }
+
+          if (typeof parsed?.consultationReason === "string") {
+            restoredReason = parsed.consultationReason;
+            setConsultationReason(parsed.consultationReason);
+          }
+
+          if (typeof parsed?.selectedPatientId === "string") {
+            setSelectedPatientId(parsed.selectedPatientId);
+          }
+        }
+      } catch (error) {
+        console.error("Could not restore payment context:", error);
+      }
 
       if (payment === "success" && sessionId) {
         setPaymentStatus("verifying");
@@ -252,14 +319,19 @@ export default function Page() {
 
           if (payload?.paid !== true) {
             throw new Error(
-              "Stripe has not confirmed this payment as paid. Please check again or contact support.",
+              "Stripe has not confirmed this payment as paid. Your referral is still active and you may try another card.",
             );
           }
 
           setPaymentStatus("paid");
           setPaymentConfirmation({
-            referralCode: payload?.referralCode || params.get("referral_code"),
-            consultationReason: payload?.consultationReason || null,
+            referralCode:
+              payload?.referralCode ||
+              params.get("referral_code") ||
+              restoredReferral?.referral_code ||
+              null,
+            consultationReason:
+              payload?.consultationReason || restoredReason || null,
             amountTotal:
               typeof payload?.amountTotal === "number"
                 ? payload.amountTotal
@@ -269,31 +341,38 @@ export default function Page() {
           setPaymentMessage(
             "Payment confirmed. Your referral has been released to the CareScriber doctor inbox.",
           );
+
+          window.history.replaceState({}, "", window.location.pathname);
         } catch (error: unknown) {
           console.error("Payment verification error:", error);
           setPaymentStatus("failed");
           setPaymentMessage(
             error instanceof Error
               ? error.message
-              : "Could not verify the payment.",
+              : "Could not verify the payment. Your referral is still active and you may try another card.",
           );
         }
       } else if (payment === "success") {
         setPaymentStatus("failed");
         setPaymentMessage(
-          "Stripe returned without a payment session ID, so the payment could not be verified.",
+          "Stripe returned without a payment session ID. Your referral is still active and you may try another card.",
         );
       } else if (payment === "cancelled" || payment === "failed") {
         setPaymentStatus("failed");
         setPaymentMessage(
-          "Payment was not completed. Your referral remains unpaid and you may try again.",
+          "Payment was not completed. Your referral is still active. Please try again using another card.",
         );
+
+        window.history.replaceState({}, "", window.location.pathname);
       }
     }
 
     void verifyReturnedPayment();
 
-    return () => window.removeEventListener("beforeinstallprompt", handler);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handler);
+      window.clearInterval(availabilityTimer);
+    };
   }, []);
 
   const bmi = useMemo(() => {
@@ -555,6 +634,7 @@ export default function Page() {
       }
 
       setReferral(apiResult.referral);
+      persistVirtualConsultContext(apiResult.referral, consultationReason);
 
       setReferralMessage(
         apiResult.patientCreated
@@ -569,6 +649,26 @@ export default function Page() {
       alert("Could not create CareScriber referral: " + error.message);
     } finally {
       setReferralLoading(false);
+    }
+  }
+
+  function persistVirtualConsultContext(
+    referralOverride: ReferralDetails | null = referral,
+    reasonOverride: string = consultationReason,
+  ) {
+    try {
+      window.localStorage.setItem(
+        PAYMENT_CONTEXT_KEY,
+        JSON.stringify({
+          form,
+          result,
+          referral: referralOverride,
+          consultationReason: reasonOverride,
+          selectedPatientId,
+        }),
+      );
+    } catch (error) {
+      console.error("Could not save virtual consult context:", error);
     }
   }
 
@@ -587,6 +687,7 @@ export default function Page() {
 
     setPaymentStatus("pending");
     setPaymentMessage("");
+    persistVirtualConsultContext(referral, reason);
 
     try {
       const response = await fetch("/api/virtual-consult-payment", {
@@ -654,6 +755,13 @@ export default function Page() {
     setPaymentStatus("not_started");
     setPaymentMessage("");
     setPaymentConfirmation(null);
+
+    try {
+      window.localStorage.removeItem(PAYMENT_CONTEXT_KEY);
+      window.history.replaceState({}, "", window.location.pathname);
+    } catch (error) {
+      console.error("Could not clear saved triage context:", error);
+    }
   }
 
   function pharmacyMapByCity() {
@@ -1106,6 +1214,23 @@ Generated by SymptomAI.`;
           line-height: 1.5;
         }
 
+        .after-hours-notice {
+          margin-top: 16px;
+          padding: 16px;
+          border-radius: 16px;
+          background: #fff7e6;
+          border: 2px solid #f79009;
+          color: #7a3e00;
+          font-size: 16px;
+          line-height: 1.5;
+        }
+
+        .after-hours-notice strong {
+          display: block;
+          margin-bottom: 6px;
+          color: #7a3e00;
+        }
+
         .payment-confirmation {
           margin-top: 18px;
           padding: 18px;
@@ -1228,16 +1353,41 @@ Generated by SymptomAI.`;
                 )}
                 <div style={{ marginTop: 10 }}>
                   <b>Doctor availability:</b> Daily from 09:00 to 21:00.
-                  Requests received outside these hours will be attended to from
-                  09:00 the following day.
+                  Requests received after hours will be attended to from 09:30
+                  the following day.
                 </div>
               </div>
             )}
 
             {paymentStatus === "failed" && paymentMessage && (
-              <div className="payment-error" style={{ marginTop: 0 }}>
-                {paymentMessage}
-              </div>
+              <>
+                <div className="payment-error" style={{ marginTop: 0 }}>
+                  <div className="referral-title" style={{ color: "#8a1f1f" }}>
+                    Payment was not completed
+                  </div>
+                  <div>{paymentMessage}</div>
+                </div>
+
+                {afterHours && (
+                  <div className="after-hours-notice">
+                    <strong>Currently after hours</strong>
+                    If you proceed, the doctor will only contact you the next
+                    day from 09:30.
+                  </div>
+                )}
+
+                {referral && consultationReason.trim() && (
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={startVirtualConsultPayment}
+                    disabled={paymentStatus === "pending"}
+                    style={{ width: "100%", marginTop: 16 }}
+                  >
+                    Try another card
+                  </button>
+                )}
+              </>
             )}
           </section>
         )}
@@ -1313,10 +1463,28 @@ Generated by SymptomAI.`;
                   <textarea
                     id="consultationReason"
                     value={consultationReason}
-                    onChange={(e) => setConsultationReason(e.target.value)}
+                    onChange={(e) => {
+                      const nextReason = e.target.value;
+                      setConsultationReason(nextReason);
+                      persistVirtualConsultContext(referral, nextReason);
+                    }}
                     placeholder="Briefly describe the symptoms, health concern, medication or prescription required."
                     disabled={paymentStatus === "paid"}
                   />
+
+                  {afterHours ? (
+                    <div className="after-hours-notice">
+                      <strong>Currently after hours</strong>
+                      If you proceed, the doctor will only contact you the next
+                      day from 09:30.
+                    </div>
+                  ) : (
+                    <div className="availability-notice">
+                      <b>Doctor availability:</b> Virtual doctors are currently
+                      available. Daily operating hours are{" "}
+                      <b>09:00 to 21:00</b>.
+                    </div>
+                  )}
 
                   <button
                     type="button"
@@ -1335,16 +1503,11 @@ Generated by SymptomAI.`;
                       : paymentStatus === "verifying"
                         ? "Verifying payment..."
                         : paymentStatus === "paid"
-                        ? "R250 Payment Confirmed"
-                        : "Pay R250 for Virtual GP Consultation"}
+                          ? "R250 Payment Confirmed"
+                          : paymentStatus === "failed"
+                            ? "Try another card"
+                            : "Pay R250 for Virtual GP Consultation"}
                   </button>
-
-                  <div className="availability-notice">
-                    <b>Doctor availability:</b> Virtual doctors are available
-                    daily from <b>09:00 to 21:00</b>. Requests received outside
-                    these hours will be attended to from 09:00 the following
-                    day.
-                  </div>
 
                   {paymentStatus === "paid" && (
                     <div className="payment-confirmation">
@@ -1364,7 +1527,12 @@ Generated by SymptomAI.`;
                   )}
 
                   {paymentStatus === "failed" && paymentMessage && (
-                    <div className="payment-error">{paymentMessage}</div>
+                    <div className="payment-error">
+                      <div style={{ marginBottom: 6 }}>
+                        <b>Payment was not completed</b>
+                      </div>
+                      {paymentMessage}
+                    </div>
                   )}
                 </div>
 
