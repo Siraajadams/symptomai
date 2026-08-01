@@ -240,7 +240,8 @@ export default function Page() {
   const [patientLookupLoading, setPatientLookupLoading] = useState(false);
   const [patientLookupMessage, setPatientLookupMessage] = useState("");
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
-  const [selectedPatient, setSelectedPatient] =\n    useState<PatientLookupResult | null>(null);
+  const [selectedPatient, setSelectedPatient] =
+    useState<PatientLookupResult | null>(null);
   const [consultationReason, setConsultationReason] = useState("");
   const [paymentStatus, setPaymentStatus] =
     useState<PaymentStatus>("not_started");
