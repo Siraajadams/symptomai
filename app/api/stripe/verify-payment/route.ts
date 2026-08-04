@@ -11,6 +11,12 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceRoleKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+const careScriberApiUrl =
+  process.env.CARESCRIBER_API_URL;
+
+const careScriberApiSecret =
+  process.env.CARESCRIBER_API_SECRET;
+
 type VerifyPaymentBody = {
   sessionId?: string;
   referralCode?: string;
@@ -19,17 +25,67 @@ type VerifyPaymentBody = {
 type ReferralRecord = {
   id: string;
   referral_code?: string | null;
+  consent_token?: string | null;
+
   patient_first_name?: string | null;
   patient_surname?: string | null;
   patient_name?: string | null;
+
   patient_id?: string | null;
+  national_id?: string | null;
+
+  date_of_birth?: string | null;
+  gender?: string | null;
+
   email?: string | null;
   mobile?: string | null;
+
   consultation_reason?: string | null;
+
   payment_status?: string | null;
   queue_status?: string | null;
   referral_status?: string | null;
+
+  stripe_checkout_session_id?: string | null;
+  stripe_payment_intent_id?: string | null;
+
+  paid_at?: string | null;
+  released_to_carescriber_at?: string | null;
+  carescriber_release_status?: string | null;
+  carescriber_release_error?: string | null;
+
   [key: string]: unknown;
+};
+
+type ReferralPayload = {
+  referralCode: string;
+  consentToken: string | null;
+
+  patientFirstName: string | null;
+  patientSurname: string | null;
+  patientName: string | null;
+
+  patientId: string | null;
+  nationalId: string | null;
+
+  dateOfBirth: string | null;
+  gender: string | null;
+
+  patientEmail: string | null;
+  patientMobile: string | null;
+
+  consultationReason: string | null;
+
+  paymentStatus: "paid";
+  queueStatus: "waiting";
+  referralStatus: "ready_for_doctor";
+
+  consultationFee: number;
+  currency: "ZAR";
+
+  stripeSessionId: string;
+  stripePaymentIntentId: string | null;
+  paidAt: string;
 };
 
 function getStripe(): Stripe {
@@ -113,6 +169,40 @@ function getPaymentIntentId(
   return session.payment_intent?.id || null;
 }
 
+function normaliseBaseUrl(value: string): string {
+  return value.replace(/\/+$/, "");
+}
+
+function buildCareScriberEndpoint(): string {
+  if (!careScriberApiUrl) {
+    throw new Error(
+      "CARESCRIBER_API_URL is missing.",
+    );
+  }
+
+  const baseUrl =
+    normaliseBaseUrl(careScriberApiUrl);
+
+  /*
+   * CARESCRIBER_API_URL can be either:
+   *
+   * https://carescriber.com
+   *
+   * or the full endpoint:
+   *
+   * https://carescriber.com/api/symptomai-referral
+   */
+  if (
+    baseUrl.endsWith(
+      "/api/symptomai-referral",
+    )
+  ) {
+    return baseUrl;
+  }
+
+  return `${baseUrl}/api/symptomai-referral`;
+}
+
 async function findReferral(
   referralCode: string,
 ): Promise<ReferralRecord | null> {
@@ -133,16 +223,17 @@ async function findReferral(
   return (data as ReferralRecord | null) || null;
 }
 
-async function releaseReferralToCareScriber({
+function buildReferralPayload({
   referral,
   session,
   referralCode,
+  paidAt,
 }: {
   referral: ReferralRecord;
   session: Stripe.Checkout.Session;
   referralCode: string;
-}): Promise<ReferralRecord> {
-  const supabase = getSupabaseAdmin();
+  paidAt: string;
+}): ReferralPayload {
   const metadata = session.metadata || {};
 
   const patientFirstName =
@@ -150,6 +241,8 @@ async function releaseReferralToCareScriber({
       metadata,
       "patientFirstName",
       "patient_first_name",
+      "firstName",
+      "first_name",
     ) ||
     referral.patient_first_name ||
     null;
@@ -159,15 +252,19 @@ async function releaseReferralToCareScriber({
       metadata,
       "patientSurname",
       "patient_surname",
+      "surname",
+      "lastName",
+      "last_name",
     ) ||
     referral.patient_surname ||
     null;
 
-  const metadataPatientName = getMetadataValue(
-    metadata,
-    "patientName",
-    "patient_name",
-  );
+  const metadataPatientName =
+    getMetadataValue(
+      metadata,
+      "patientName",
+      "patient_name",
+    );
 
   const combinedPatientName =
     [patientFirstName, patientSurname]
@@ -185,9 +282,20 @@ async function releaseReferralToCareScriber({
       metadata,
       "patientId",
       "patient_id",
+    ) ||
+    referral.patient_id ||
+    referral.national_id ||
+    null;
+
+  const nationalId =
+    getMetadataValue(
+      metadata,
       "nationalId",
       "national_id",
+      "idNumber",
+      "id_number",
     ) ||
+    referral.national_id ||
     referral.patient_id ||
     null;
 
@@ -196,6 +304,7 @@ async function releaseReferralToCareScriber({
       metadata,
       "patientEmail",
       "patient_email",
+      "email",
     ) ||
     session.customer_details?.email ||
     session.customer_email ||
@@ -209,6 +318,8 @@ async function releaseReferralToCareScriber({
       "patient_mobile",
       "patientPhone",
       "patient_phone",
+      "mobile",
+      "phone",
     ) ||
     session.customer_details?.phone ||
     referral.mobile ||
@@ -219,25 +330,105 @@ async function releaseReferralToCareScriber({
       metadata,
       "consultationReason",
       "consultation_reason",
+      "reasonForConsultation",
+      "reason_for_consultation",
     ) ||
     referral.consultation_reason ||
     null;
 
-  const paidAt = new Date().toISOString();
-  const paymentIntentId =
-    getPaymentIntentId(session);
+  const consentToken =
+    getMetadataValue(
+      metadata,
+      "consentToken",
+      "consent_token",
+    ) ||
+    referral.consent_token ||
+    null;
 
-  /*
-   * Attempt the complete update first.
-   */
+  const dateOfBirth =
+    getMetadataValue(
+      metadata,
+      "dateOfBirth",
+      "date_of_birth",
+      "dob",
+    ) ||
+    referral.date_of_birth ||
+    null;
+
+  const gender =
+    getMetadataValue(
+      metadata,
+      "gender",
+      "patientGender",
+      "patient_gender",
+    ) ||
+    referral.gender ||
+    null;
+
+  return {
+    referralCode,
+    consentToken,
+
+    patientFirstName,
+    patientSurname,
+    patientName,
+
+    patientId,
+    nationalId,
+
+    dateOfBirth,
+    gender,
+
+    patientEmail,
+    patientMobile,
+
+    consultationReason,
+
+    paymentStatus: "paid",
+    queueStatus: "waiting",
+    referralStatus: "ready_for_doctor",
+
+    consultationFee: 250,
+    currency: "ZAR",
+
+    stripeSessionId: session.id,
+    stripePaymentIntentId:
+      getPaymentIntentId(session),
+
+    paidAt,
+  };
+}
+
+async function updateReferralAsPaid({
+  referral,
+  payload,
+}: {
+  referral: ReferralRecord;
+  payload: ReferralPayload;
+}): Promise<ReferralRecord> {
+  const supabase = getSupabaseAdmin();
+
   const completeUpdate = {
-    patient_first_name: patientFirstName,
-    patient_surname: patientSurname,
-    patient_name: patientName,
-    patient_id: patientId,
-    email: patientEmail,
-    mobile: patientMobile,
-    consultation_reason: consultationReason,
+    patient_first_name:
+      payload.patientFirstName,
+
+    patient_surname:
+      payload.patientSurname,
+
+    patient_name:
+      payload.patientName,
+
+    patient_id:
+      payload.patientId,
+
+    email:
+      payload.patientEmail,
+
+    mobile:
+      payload.patientMobile,
+
+    consultation_reason:
+      payload.consultationReason,
 
     payment_status: "paid",
     queue_status: "waiting",
@@ -246,11 +437,17 @@ async function releaseReferralToCareScriber({
     consultation_fee: 250,
     currency: "ZAR",
 
-    stripe_checkout_session_id: session.id,
-    stripe_payment_intent_id: paymentIntentId,
+    stripe_checkout_session_id:
+      payload.stripeSessionId,
 
-    paid_at: paidAt,
-    updated_at: paidAt,
+    stripe_payment_intent_id:
+      payload.stripePaymentIntentId,
+
+    paid_at:
+      payload.paidAt,
+
+    updated_at:
+      payload.paidAt,
   };
 
   const completeResult = await supabase
@@ -268,22 +465,23 @@ async function releaseReferralToCareScriber({
   }
 
   console.warn(
-    `Complete payment update failed for ${referralCode}. ` +
-      "Trying essential CareScriber inbox update.",
+    "Complete payment update failed. " +
+      "Trying essential update only.",
     completeResult.error,
   );
 
   /*
-   * Fallback update in case optional Stripe or patient
-   * columns have not yet been created in Supabase.
+   * This fallback allows the route to work even if some
+   * optional columns have not yet been created.
    */
   const essentialResult = await supabase
     .from("symptomai_referrals")
     .update({
       payment_status: "paid",
       queue_status: "waiting",
-      referral_status: "ready_for_doctor",
-      updated_at: paidAt,
+      referral_status:
+        "ready_for_doctor",
+      updated_at: payload.paidAt,
     })
     .eq("id", referral.id)
     .select("*")
@@ -294,7 +492,7 @@ async function releaseReferralToCareScriber({
     !essentialResult.data
   ) {
     throw new Error(
-      `Referral ${referralCode} could not be released: ${
+      `Referral payment update failed: ${
         essentialResult.error?.message ||
         completeResult.error?.message ||
         "Unknown Supabase error."
@@ -305,16 +503,185 @@ async function releaseReferralToCareScriber({
   return essentialResult.data as ReferralRecord;
 }
 
+async function sendReferralToCareScriber(
+  payload: ReferralPayload,
+): Promise<{
+  success: boolean;
+  status: number;
+  response: unknown;
+}> {
+  const endpoint =
+    buildCareScriberEndpoint();
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+
+  /*
+   * Add this only if the CareScriber receiving endpoint
+   * checks an API secret.
+   */
+  if (careScriberApiSecret) {
+    headers.Authorization =
+      `Bearer ${careScriberApiSecret}`;
+
+    headers["x-api-key"] =
+      careScriberApiSecret;
+  }
+
+  console.log(
+    `Sending paid referral ${payload.referralCode} to ${endpoint}`,
+  );
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+    cache: "no-store",
+  });
+
+  const responseText =
+    await response.text();
+
+  let responseBody: unknown =
+    responseText;
+
+  if (responseText) {
+    try {
+      responseBody =
+        JSON.parse(responseText);
+    } catch {
+      responseBody = responseText;
+    }
+  }
+
+  if (!response.ok) {
+    console.error(
+      "CareScriber referral API failed:",
+      {
+        referralCode:
+          payload.referralCode,
+        status: response.status,
+        response: responseBody,
+      },
+    );
+
+    throw new Error(
+      `CareScriber rejected referral ${payload.referralCode}. ` +
+        `HTTP ${response.status}: ${
+          typeof responseBody === "string"
+            ? responseBody
+            : JSON.stringify(responseBody)
+        }`,
+    );
+  }
+
+  console.log(
+    `Referral ${payload.referralCode} successfully sent to CareScriber.`,
+  );
+
+  return {
+    success: true,
+    status: response.status,
+    response: responseBody,
+  };
+}
+
+async function markCareScriberReleaseSuccess({
+  referralId,
+  releasedAt,
+}: {
+  referralId: string;
+  releasedAt: string;
+}) {
+  const supabase = getSupabaseAdmin();
+
+  /*
+   * This is optional. If the release tracking columns do
+   * not exist, the payment flow must still succeed.
+   */
+  const { error } = await supabase
+    .from("symptomai_referrals")
+    .update({
+      carescriber_release_status:
+        "released",
+
+      released_to_carescriber_at:
+        releasedAt,
+
+      carescriber_release_error:
+        null,
+
+      updated_at:
+        releasedAt,
+    })
+    .eq("id", referralId);
+
+  if (error) {
+    console.warn(
+      "Referral was sent to CareScriber, but release tracking could not be updated:",
+      error.message,
+    );
+  }
+}
+
+async function markCareScriberReleaseFailure({
+  referralId,
+  message,
+}: {
+  referralId: string;
+  message: string;
+}) {
+  const supabase = getSupabaseAdmin();
+
+  /*
+   * This is also optional and should not hide the original
+   * CareScriber API error.
+   */
+  const { error } = await supabase
+    .from("symptomai_referrals")
+    .update({
+      carescriber_release_status:
+        "failed",
+
+      carescriber_release_error:
+        message.slice(0, 1000),
+
+      updated_at:
+        new Date().toISOString(),
+    })
+    .eq("id", referralId);
+
+  if (error) {
+    console.warn(
+      "Could not store the CareScriber release error:",
+      error.message,
+    );
+  }
+}
+
 export async function GET() {
   return NextResponse.json({
     ok: true,
-    service: "Stripe payment verification",
+    service:
+      "Stripe payment verification and CareScriber release",
+
     configured: {
-      stripeSecretKey: Boolean(stripeSecretKey),
-      supabaseUrl: Boolean(supabaseUrl),
-      supabaseServiceRoleKey: Boolean(
-        supabaseServiceRoleKey,
-      ),
+      stripeSecretKey:
+        Boolean(stripeSecretKey),
+
+      supabaseUrl:
+        Boolean(supabaseUrl),
+
+      supabaseServiceRoleKey:
+        Boolean(supabaseServiceRoleKey),
+
+      careScriberApiUrl:
+        Boolean(careScriberApiUrl),
+
+      careScriberApiSecret:
+        Boolean(careScriberApiSecret),
     },
   });
 }
@@ -324,17 +691,31 @@ export async function POST(req: NextRequest) {
     if (!stripeSecretKey) {
       return NextResponse.json(
         {
-          error: "STRIPE_SECRET_KEY is missing.",
+          error:
+            "STRIPE_SECRET_KEY is missing.",
         },
         { status: 500 },
       );
     }
 
-    if (!supabaseUrl || !supabaseServiceRoleKey) {
+    if (
+      !supabaseUrl ||
+      !supabaseServiceRoleKey
+    ) {
       return NextResponse.json(
         {
           error:
             "Supabase server environment variables are missing.",
+        },
+        { status: 500 },
+      );
+    }
+
+    if (!careScriberApiUrl) {
+      return NextResponse.json(
+        {
+          error:
+            "CARESCRIBER_API_URL is missing.",
         },
         { status: 500 },
       );
@@ -348,7 +729,8 @@ export async function POST(req: NextRequest) {
     } catch {
       return NextResponse.json(
         {
-          error: "A valid JSON request body is required.",
+          error:
+            "A valid JSON request body is required.",
         },
         { status: 400 },
       );
@@ -360,7 +742,9 @@ export async function POST(req: NextRequest) {
         : "";
 
     const requestedReferralCode =
-      normaliseReferralCode(body.referralCode);
+      normaliseReferralCode(
+        body.referralCode,
+      );
 
     if (!sessionId) {
       return NextResponse.json(
@@ -400,11 +784,17 @@ export async function POST(req: NextRequest) {
         {
           paid: false,
           released: false,
+
           error:
             "No referral code is attached to this Stripe Checkout Session.",
+
           sessionId: session.id,
-          paymentStatus: session.payment_status,
-          sessionStatus: session.status,
+
+          paymentStatus:
+            session.payment_status,
+
+          sessionStatus:
+            session.status,
         },
         { status: 400 },
       );
@@ -412,17 +802,20 @@ export async function POST(req: NextRequest) {
 
     if (
       requestedReferralCode &&
-      sessionReferralCode !==
-        requestedReferralCode
+      requestedReferralCode !==
+        sessionReferralCode
     ) {
       return NextResponse.json(
         {
           paid: false,
           released: false,
+
           error:
             "The payment does not match this referral.",
+
           expectedReferralCode:
             requestedReferralCode,
+
           paymentReferralCode:
             sessionReferralCode,
         },
@@ -438,49 +831,159 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         paid: false,
         released: false,
-        paymentStatus: session.payment_status,
-        sessionStatus: session.status,
-        referralCode: sessionReferralCode,
-        sessionId: session.id,
+
+        paymentStatus:
+          session.payment_status,
+
+        sessionStatus:
+          session.status,
+
+        referralCode:
+          sessionReferralCode,
+
+        sessionId:
+          session.id,
+
         message:
           "The Stripe payment has not yet completed.",
       });
     }
 
     const referral =
-      await findReferral(sessionReferralCode);
+      await findReferral(
+        sessionReferralCode,
+      );
 
     if (!referral) {
       return NextResponse.json(
         {
           paid: true,
           released: false,
+
           error:
-            `Payment succeeded, but referral ${sessionReferralCode} was not found in symptomai_referrals.`,
-          referralCode: sessionReferralCode,
-          sessionId: session.id,
-          paymentStatus: session.payment_status,
-          sessionStatus: session.status,
+            `Payment succeeded, but referral ${sessionReferralCode} ` +
+            "was not found in symptomai_referrals.",
+
+          referralCode:
+            sessionReferralCode,
+
+          sessionId:
+            session.id,
+
+          paymentStatus:
+            session.payment_status,
+
+          sessionStatus:
+            session.status,
         },
         { status: 404 },
       );
     }
 
-    const alreadyReleased =
-      referral.payment_status === "paid" &&
-      referral.queue_status === "waiting" &&
-      referral.referral_status ===
-        "ready_for_doctor";
+    const paidAt =
+      referral.paid_at ||
+      new Date().toISOString();
 
-    let updatedReferral = referral;
+    const payload =
+      buildReferralPayload({
+        referral,
+        session,
+        referralCode:
+          sessionReferralCode,
+        paidAt,
+      });
+
+    /*
+     * First update the SymptomAI database.
+     */
+    const updatedReferral =
+      await updateReferralAsPaid({
+        referral,
+        payload,
+      });
+
+    /*
+     * If this referral has already been released successfully,
+     * do not create another duplicate inbox record.
+     */
+    const alreadyReleased =
+      referral.carescriber_release_status ===
+        "released" ||
+      Boolean(
+        referral.released_to_carescriber_at,
+      );
+
+    let careScriberResult:
+      | {
+          success: boolean;
+          status: number;
+          response: unknown;
+        }
+      | null = null;
 
     if (!alreadyReleased) {
-      updatedReferral =
-        await releaseReferralToCareScriber({
-          referral,
-          session,
-          referralCode: sessionReferralCode,
+      try {
+        careScriberResult =
+          await sendReferralToCareScriber(
+            payload,
+          );
+
+        await markCareScriberReleaseSuccess({
+          referralId:
+            updatedReferral.id,
+          releasedAt:
+            new Date().toISOString(),
         });
+      } catch (releaseError: unknown) {
+        const releaseMessage =
+          releaseError instanceof Error
+            ? releaseError.message
+            : "CareScriber release failed.";
+
+        await markCareScriberReleaseFailure({
+          referralId:
+            updatedReferral.id,
+          message:
+            releaseMessage,
+        });
+
+        return NextResponse.json(
+          {
+            paid: true,
+            released: false,
+
+            paymentStatus:
+              session.payment_status,
+
+            sessionStatus:
+              session.status,
+
+            referralCode:
+              sessionReferralCode,
+
+            sessionId:
+              session.id,
+
+            paymentIntentId:
+              getPaymentIntentId(session),
+
+            queueStatus:
+              updatedReferral.queue_status ||
+              "waiting",
+
+            referralStatus:
+              updatedReferral.referral_status ||
+              "ready_for_doctor",
+
+            error:
+              "Payment was confirmed, but the referral could not be sent to CareScriber.",
+
+            details:
+              releaseMessage,
+          },
+          { status: 502 },
+        );
+      }
     }
 
     return NextResponse.json({
@@ -488,11 +991,18 @@ export async function POST(req: NextRequest) {
       released: true,
       alreadyReleased,
 
-      paymentStatus: session.payment_status,
-      sessionStatus: session.status,
+      paymentStatus:
+        session.payment_status,
 
-      referralCode: sessionReferralCode,
-      sessionId: session.id,
+      sessionStatus:
+        session.status,
+
+      referralCode:
+        sessionReferralCode,
+
+      sessionId:
+        session.id,
+
       paymentIntentId:
         getPaymentIntentId(session),
 
@@ -504,9 +1014,17 @@ export async function POST(req: NextRequest) {
         updatedReferral.referral_status ||
         "ready_for_doctor",
 
+      careScriberApiStatus:
+        careScriberResult?.status ||
+        null,
+
+      careScriberResponse:
+        careScriberResult?.response ||
+        null,
+
       message: alreadyReleased
-        ? "Payment was previously confirmed and the referral is already available in CareScriber."
-        : "Payment confirmed. The referral has been released to the CareScriber doctor inbox.",
+        ? "Payment was previously confirmed and the referral was already released to CareScriber."
+        : "Payment confirmed. The referral has been sent to the CareScriber doctor inbox.",
     });
   } catch (error: unknown) {
     const message =
@@ -516,16 +1034,19 @@ export async function POST(req: NextRequest) {
 
     console.error(
       "Stripe verification error:",
-      message,
+      error,
     );
 
     if (
-      error instanceof Stripe.errors.StripeError
+      error instanceof
+      Stripe.errors.StripeError
     ) {
       return NextResponse.json(
         {
-          error: error.message,
-          type: error.type,
+          error:
+            error.message,
+          type:
+            error.type,
         },
         {
           status:
