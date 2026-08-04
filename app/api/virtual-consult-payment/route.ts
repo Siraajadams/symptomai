@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 
@@ -29,7 +30,10 @@ function getBaseUrl(req: NextRequest) {
   if (configuredUrl) {
     const cleanUrl = configuredUrl.replace(/\/+$/, "");
 
-    if (cleanUrl.startsWith("http://") || cleanUrl.startsWith("https://")) {
+    if (
+      cleanUrl.startsWith("http://") ||
+      cleanUrl.startsWith("https://")
+    ) {
       return cleanUrl;
     }
 
@@ -41,7 +45,7 @@ function getBaseUrl(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    if (!process.env.STRIPE_SECRET_KEY) {
+    if (!stripeSecretKey) {
       return NextResponse.json(
         {
           success: false,
@@ -54,12 +58,23 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json()) as PaymentRequestBody;
 
-    const referralCode = body.referralCode?.trim().toUpperCase();
-    const consentToken = body.consentToken?.trim();
-    const consultationReason = body.consultationReason?.trim();
-    const patientName = body.patientName?.trim() || "SymptomAI Patient";
-    const patientEmail = body.patientEmail?.trim() || undefined;
-    const patientId = body.patientId?.trim() || "";
+    const referralCode =
+      body.referralCode?.trim().toUpperCase() || "";
+
+    const consentToken =
+      body.consentToken?.trim() || "";
+
+    const consultationReason =
+      body.consultationReason?.trim() || "";
+
+    const patientName =
+      body.patientName?.trim() || "SymptomAI Patient";
+
+    const patientEmail =
+      body.patientEmail?.trim() || undefined;
+
+    const patientId =
+      body.patientId?.trim() || "";
 
     if (!referralCode) {
       return NextResponse.json(
@@ -96,7 +111,29 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: "Consultation reason cannot exceed 500 characters.",
+          error:
+            "Consultation reason cannot exceed 500 characters.",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (patientName.length > 200) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Patient name cannot exceed 200 characters.",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (patientId.length > 200) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Patient ID cannot exceed 200 characters.",
         },
         { status: 400 },
       );
@@ -104,73 +141,107 @@ export async function POST(req: NextRequest) {
 
     const baseUrl = getBaseUrl(req);
 
-    const session = await stripe.checkout.sessions.create({
-      mode: "payment",
+    const session =
+      await stripe.checkout.sessions.create({
+        mode: "payment",
 
-      payment_method_types: ["card"],
+        /*
+         * Enables the "Add promotion code" field
+         * on the Stripe-hosted Checkout page.
+         */
+        allow_promotion_codes: true,
 
-      customer_email: patientEmail,
+        payment_method_types: ["card"],
 
-      client_reference_id: referralCode,
+        customer_email: patientEmail,
 
-      line_items: [
-        {
-          quantity: 1,
-          price_data: {
-            currency: "zar",
-            unit_amount: 25000,
-            product_data: {
-              name: "Virtual GP Consultation",
-              description: `SymptomAI referral ${referralCode}`,
+        client_reference_id: referralCode,
+
+        line_items: [
+          {
+            quantity: 1,
+            price_data: {
+              currency: "zar",
+              unit_amount: 25000,
+              product_data: {
+                name: "Virtual GP Consultation",
+                description:
+                  `SymptomAI referral ${referralCode}`,
+              },
             },
           },
-        },
-      ],
+        ],
 
-      metadata: {
-        referral_code: referralCode,
-        consent_token: consentToken,
-        consultation_reason: consultationReason.substring(0, 500),
-        patient_name: patientName.substring(0, 200),
-        patient_id: patientId.substring(0, 200),
-        service: "symptomai_virtual_gp",
-      },
-
-      payment_intent_data: {
         metadata: {
           referral_code: referralCode,
           consent_token: consentToken,
+          consultation_reason:
+            consultationReason.substring(0, 500),
+          patient_name:
+            patientName.substring(0, 200),
+          patient_email:
+            patientEmail?.substring(0, 200) || "",
+          patient_id:
+            patientId.substring(0, 200),
           service: "symptomai_virtual_gp",
         },
-      },
 
-      success_url:
-        `${baseUrl}/?payment=success` +
-        `&session_id={CHECKOUT_SESSION_ID}` +
-        `&referral_code=${encodeURIComponent(referralCode)}`,
+        payment_intent_data: {
+          metadata: {
+            referral_code: referralCode,
+            consent_token: consentToken,
+            patient_name:
+              patientName.substring(0, 200),
+            patient_email:
+              patientEmail?.substring(0, 200) || "",
+            patient_id:
+              patientId.substring(0, 200),
+            service: "symptomai_virtual_gp",
+          },
+        },
 
-      cancel_url:
-        `${baseUrl}/?payment=cancelled` +
-        `&referral_code=${encodeURIComponent(referralCode)}`,
+        success_url:
+          `${baseUrl}/?payment=success` +
+          `&session_id={CHECKOUT_SESSION_ID}` +
+          `&referral_code=${encodeURIComponent(
+            referralCode,
+          )}`,
 
-      locale: "en",
+        cancel_url:
+          `${baseUrl}/?payment=cancelled` +
+          `&referral_code=${encodeURIComponent(
+            referralCode,
+          )}`,
 
-      billing_address_collection: "auto",
+        locale: "en",
 
-      expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
-    });
+        billing_address_collection: "auto",
+
+        /*
+         * Checkout Session expires after 30 minutes.
+         */
+        expires_at:
+          Math.floor(Date.now() / 1000) +
+          30 * 60,
+      });
 
     if (!session.url) {
-      throw new Error("Stripe did not return a Checkout URL.");
+      throw new Error(
+        "Stripe did not return a Checkout URL.",
+      );
     }
 
     return NextResponse.json({
       success: true,
       checkoutUrl: session.url,
       sessionId: session.id,
+      referralCode,
     });
   } catch (error: unknown) {
-    console.error("Stripe Checkout creation error:", error);
+    console.error(
+      "Stripe Checkout creation error:",
+      error,
+    );
 
     const message =
       error instanceof Error
