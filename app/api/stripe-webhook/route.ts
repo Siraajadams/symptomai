@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceRoleKey =
@@ -23,7 +23,24 @@ const paymentEmailRecipient =
   process.env.PAYMENT_NOTIFICATION_TO ||
   "info@videomed.co.za";
 
-function getStripe() {
+type ReferralRecord = {
+  id: string;
+  referral_code?: string | null;
+  patient_first_name?: string | null;
+  patient_surname?: string | null;
+  patient_name?: string | null;
+  patient_id?: string | null;
+  email?: string | null;
+  mobile?: string | null;
+  consultation_reason?: string | null;
+  payment_status?: string | null;
+  queue_status?: string | null;
+  referral_status?: string | null;
+  payment_notification_sent_at?: string | null;
+  [key: string]: unknown;
+};
+
+function getStripe(): Stripe {
   if (!stripeSecretKey) {
     throw new Error("STRIPE_SECRET_KEY is missing.");
   }
@@ -34,7 +51,7 @@ function getStripe() {
 function getSupabaseAdmin() {
   if (!supabaseUrl || !supabaseServiceRoleKey) {
     throw new Error(
-      "Supabase server environment variables are not configured.",
+      "Supabase environment variables are not configured.",
     );
   }
 
@@ -50,14 +67,6 @@ function getSupabaseAdmin() {
   );
 }
 
-function getResend() {
-  if (!resendApiKey) {
-    throw new Error("RESEND_API_KEY is missing.");
-  }
-
-  return new Resend(resendApiKey);
-}
-
 function escapeHtml(value: unknown): string {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -67,7 +76,9 @@ function escapeHtml(value: unknown): string {
     .replaceAll("'", "&#039;");
 }
 
-function formatSouthAfricanDate(value: string | Date): string {
+function formatSouthAfricanDate(
+  value: string | Date,
+): string {
   const date =
     value instanceof Date ? value : new Date(value);
 
@@ -78,37 +89,314 @@ function formatSouthAfricanDate(value: string | Date): string {
   }).format(date);
 }
 
+function normaliseReferralCode(
+  value: string | null | undefined,
+): string {
+  return String(value || "")
+    .trim()
+    .toUpperCase();
+}
+
+function getPaymentIntentId(
+  session: Stripe.Checkout.Session,
+): string | null {
+  if (typeof session.payment_intent === "string") {
+    return session.payment_intent;
+  }
+
+  return session.payment_intent?.id || null;
+}
+
+/**
+ * Extract the referral code from metadata first.
+ *
+ * client_reference_id is included as a fallback and should
+ * also be populated when creating the Checkout Session.
+ */
+function getReferralCode(
+  session: Stripe.Checkout.Session,
+): string {
+  const metadata = session.metadata || {};
+
+  return normaliseReferralCode(
+    metadata.referralCode ||
+      metadata.referral_code ||
+      metadata.symptomaiReferralCode ||
+      metadata.symptomai_referral_code ||
+      session.client_reference_id,
+  );
+}
+
+function getMetadataValue(
+  metadata: Stripe.Metadata | null,
+  ...keys: string[]
+): string | null {
+  if (!metadata) {
+    return null;
+  }
+
+  for (const key of keys) {
+    const value = metadata[key];
+
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return null;
+}
+
+async function findReferral(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  referralCode: string,
+): Promise<ReferralRecord | null> {
+  /*
+   * select("*") avoids webhook failure when one of the
+   * optional notification columns is not present.
+   */
+  const { data, error } = await supabase
+    .from("symptomai_referrals")
+    .select("*")
+    .ilike("referral_code", referralCode)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(
+      `Referral lookup failed: ${error.message}`,
+    );
+  }
+
+  return (data as ReferralRecord | null) || null;
+}
+
+/**
+ * Some deployments may not yet have every newer payment
+ * column. We attempt the full update first, then fall back
+ * to the essential inbox fields.
+ */
+async function releaseReferralToInbox({
+  supabase,
+  existingReferral,
+  session,
+  referralCode,
+}: {
+  supabase: ReturnType<typeof getSupabaseAdmin>;
+  existingReferral: ReferralRecord;
+  session: Stripe.Checkout.Session;
+  referralCode: string;
+}): Promise<ReferralRecord> {
+  const metadata = session.metadata || {};
+
+  const firstName = getMetadataValue(
+    metadata,
+    "patientFirstName",
+    "patient_first_name",
+  );
+
+  const surname = getMetadataValue(
+    metadata,
+    "patientSurname",
+    "patient_surname",
+  );
+
+  const metadataName = getMetadataValue(
+    metadata,
+    "patientName",
+    "patient_name",
+  );
+
+  const combinedName =
+    [firstName, surname].filter(Boolean).join(" ") ||
+    null;
+
+  const patientName =
+    metadataName ||
+    combinedName ||
+    (existingReferral.patient_name as string | null) ||
+    null;
+
+  const patientId =
+    getMetadataValue(
+      metadata,
+      "patientId",
+      "patient_id",
+      "nationalId",
+      "national_id",
+    ) ||
+    (existingReferral.patient_id as string | null) ||
+    null;
+
+  const patientEmail =
+    getMetadataValue(
+      metadata,
+      "patientEmail",
+      "patient_email",
+    ) ||
+    session.customer_details?.email ||
+    session.customer_email ||
+    (existingReferral.email as string | null) ||
+    null;
+
+  const patientMobile =
+    getMetadataValue(
+      metadata,
+      "patientMobile",
+      "patient_mobile",
+      "patientPhone",
+      "patient_phone",
+    ) ||
+    session.customer_details?.phone ||
+    (existingReferral.mobile as string | null) ||
+    null;
+
+  const consultationReason =
+    getMetadataValue(
+      metadata,
+      "consultationReason",
+      "consultation_reason",
+    ) ||
+    (existingReferral.consultation_reason as
+      | string
+      | null) ||
+    null;
+
+  const paidAt = new Date().toISOString();
+  const paymentIntentId = getPaymentIntentId(session);
+
+  const fullUpdate = {
+    patient_first_name:
+      firstName || existingReferral.patient_first_name,
+
+    patient_surname:
+      surname || existingReferral.patient_surname,
+
+    patient_name: patientName,
+    patient_id: patientId,
+    email: patientEmail,
+    mobile: patientMobile,
+    consultation_reason: consultationReason,
+
+    payment_status: "paid",
+    queue_status: "waiting",
+    referral_status: "ready_for_doctor",
+
+    consultation_fee: 250,
+    currency: "ZAR",
+
+    stripe_checkout_session_id: session.id,
+    stripe_payment_intent_id: paymentIntentId,
+
+    paid_at: paidAt,
+    updated_at: paidAt,
+  };
+
+  const fullResult = await supabase
+    .from("symptomai_referrals")
+    .update(fullUpdate)
+    .eq("id", existingReferral.id)
+    .select("*")
+    .single();
+
+  if (!fullResult.error && fullResult.data) {
+    return fullResult.data as ReferralRecord;
+  }
+
+  console.warn(
+    `Full referral update failed for ${referralCode}. ` +
+      "Attempting essential inbox update:",
+    fullResult.error,
+  );
+
+  /*
+   * Essential fallback. These are the fields required by
+   * the CareScriber Virtual Consult Inbox.
+   */
+  const essentialUpdate = {
+    payment_status: "paid",
+    queue_status: "waiting",
+    referral_status: "ready_for_doctor",
+    updated_at: paidAt,
+  };
+
+  const essentialResult = await supabase
+    .from("symptomai_referrals")
+    .update(essentialUpdate)
+    .eq("id", existingReferral.id)
+    .select("*")
+    .single();
+
+  if (essentialResult.error || !essentialResult.data) {
+    throw new Error(
+      `Referral release failed: ${
+        essentialResult.error?.message ||
+        fullResult.error?.message ||
+        "Unknown database error."
+      }`,
+    );
+  }
+
+  return essentialResult.data as ReferralRecord;
+}
+
 async function sendPaymentNotification({
   referralCode,
-  patientName,
-  patientId,
-  patientEmail,
-  patientMobile,
-  consultationReason,
-  paymentIntentId,
-  stripeSessionId,
-  paidAt,
+  referral,
+  session,
 }: {
   referralCode: string;
-  patientName: string | null;
-  patientId: string | null;
-  patientEmail: string | null;
-  patientMobile: string | null;
-  consultationReason: string | null;
-  paymentIntentId: string | null;
-  stripeSessionId: string;
-  paidAt: string;
-}) {
-  const resend = getResend();
+  referral: ReferralRecord;
+  session: Stripe.Checkout.Session;
+}): Promise<string | null> {
+  /*
+   * Email is optional. It must never prevent the referral
+   * from reaching the doctor inbox.
+   */
+  if (!resendApiKey) {
+    console.warn(
+      "RESEND_API_KEY is missing. Payment email skipped.",
+    );
 
-  const subject =
-    `New GP Consultation Payment Received – ${referralCode}`;
+    return null;
+  }
 
+  const resend = new Resend(resendApiKey);
+  const paidAt = new Date().toISOString();
+
+  const paymentIntentId = getPaymentIntentId(session);
   const paymentReference =
-    paymentIntentId || stripeSessionId;
+    paymentIntentId || session.id;
+
+  const patientName =
+    (referral.patient_name as string | null) ||
+    [
+      referral.patient_first_name,
+      referral.patient_surname,
+    ]
+      .filter(Boolean)
+      .join(" ") ||
+    "Not provided";
+
+  const amountPaid =
+    typeof session.amount_total === "number"
+      ? session.amount_total / 100
+      : 250;
+
+  const currency =
+    session.currency?.toUpperCase() || "ZAR";
+
+  const formattedAmount = new Intl.NumberFormat(
+    "en-ZA",
+    {
+      style: "currency",
+      currency,
+    },
+  ).format(amountPaid);
 
   const formattedDate =
     formatSouthAfricanDate(paidAt);
+
+  const subject =
+    `New GP consultation payment – ${referralCode}`;
 
   const html = `
     <!doctype html>
@@ -168,16 +456,11 @@ async function sendPaymentNotification({
                   font-size:14px;
                 "
               >
-                SymptomAI GP consultation
+                SymptomAI virtual GP consultation
               </p>
             </div>
 
             <div style="padding:28px;">
-              <p style="margin-top:0;">
-                A patient has successfully paid R250 for a
-                VideoMed GP consultation.
-              </p>
-
               <table
                 style="
                   width:100%;
@@ -196,10 +479,10 @@ async function sendPaymentNotification({
 
                 <tr>
                   <td style="${labelStyle}">
-                    Amount
+                    Amount paid
                   </td>
                   <td style="${valueStyle}">
-                    R250.00
+                    ${escapeHtml(formattedAmount)}
                   </td>
                 </tr>
 
@@ -226,9 +509,7 @@ async function sendPaymentNotification({
                     Patient
                   </td>
                   <td style="${valueStyle}">
-                    ${escapeHtml(
-                      patientName || "Not provided",
-                    )}
+                    ${escapeHtml(patientName)}
                   </td>
                 </tr>
 
@@ -238,7 +519,8 @@ async function sendPaymentNotification({
                   </td>
                   <td style="${valueStyle}">
                     ${escapeHtml(
-                      patientId || "Not provided",
+                      referral.patient_id ||
+                        "Not provided",
                     )}
                   </td>
                 </tr>
@@ -249,7 +531,8 @@ async function sendPaymentNotification({
                   </td>
                   <td style="${valueStyle}">
                     ${escapeHtml(
-                      patientEmail || "Not provided",
+                      referral.email ||
+                        "Not provided",
                     )}
                   </td>
                 </tr>
@@ -260,7 +543,8 @@ async function sendPaymentNotification({
                   </td>
                   <td style="${valueStyle}">
                     ${escapeHtml(
-                      patientMobile || "Not provided",
+                      referral.mobile ||
+                        "Not provided",
                     )}
                   </td>
                 </tr>
@@ -271,7 +555,7 @@ async function sendPaymentNotification({
                   </td>
                   <td style="${valueStyle}">
                     ${escapeHtml(
-                      consultationReason ||
+                      referral.consultation_reason ||
                         "Not provided",
                     )}
                   </td>
@@ -297,8 +581,8 @@ async function sendPaymentNotification({
                 "
               >
                 <strong>CareScriber status:</strong>
-                The referral has been released to the doctor
-                referral inbox.
+                The referral has been released to the
+                doctor inbox.
               </div>
             </div>
           </div>
@@ -310,20 +594,20 @@ async function sendPaymentNotification({
   const text = `
 A SymptomAI consultation payment was successful.
 
-Referral Code: ${referralCode}
-Amount: R250.00
-Payment Status: PAID
-Payment Reference: ${paymentReference}
+Referral code: ${referralCode}
+Amount paid: ${formattedAmount}
+Payment status: PAID
+Payment reference: ${paymentReference}
 
-Patient: ${patientName || "Not provided"}
-Patient ID: ${patientId || "Not provided"}
-Patient Email: ${patientEmail || "Not provided"}
-Patient Mobile: ${patientMobile || "Not provided"}
+Patient: ${patientName}
+Patient ID: ${referral.patient_id || "Not provided"}
+Patient email: ${referral.email || "Not provided"}
+Patient mobile: ${referral.mobile || "Not provided"}
 
-Consultation Reason:
-${consultationReason || "Not provided"}
+Consultation reason:
+${referral.consultation_reason || "Not provided"}
 
-Payment Date:
+Payment date:
 ${formattedDate}
 
 The referral has been released to the CareScriber doctor inbox.
@@ -338,12 +622,50 @@ The referral has been released to the CareScriber doctor inbox.
   });
 
   if (error) {
-    throw new Error(
-      `Payment notification email failed: ${error.message}`,
-    );
+    throw new Error(error.message);
   }
 
-  return data;
+  return data?.id || null;
+}
+
+async function recordNotificationResult({
+  referralId,
+  emailId,
+  errorMessage,
+}: {
+  referralId: string;
+  emailId?: string | null;
+  errorMessage?: string | null;
+}) {
+  const supabase = getSupabaseAdmin();
+
+  const payload = emailId
+    ? {
+        payment_notification_sent_at:
+          new Date().toISOString(),
+        payment_notification_email_id: emailId,
+        payment_notification_error: null,
+      }
+    : {
+        payment_notification_error:
+          errorMessage || "Notification was not sent.",
+      };
+
+  const { error } = await supabase
+    .from("symptomai_referrals")
+    .update(payload)
+    .eq("id", referralId);
+
+  /*
+   * These notification columns are optional. A missing
+   * column must not fail the payment webhook.
+   */
+  if (error) {
+    console.warn(
+      "Could not save payment email status:",
+      error.message,
+    );
+  }
 }
 
 const labelStyle = [
@@ -360,28 +682,40 @@ const valueStyle = [
   "vertical-align:top",
 ].join(";");
 
-/*
- * Opening this endpoint in a browser confirms that
- * the webhook route exists.
- */
 export async function GET() {
   return NextResponse.json({
     ok: true,
-    service: "SymptomAI Stripe webhook",
+    service: "CareScriber Stripe webhook",
+    route: "/api/stripe/webhook",
+    configured: {
+      stripeSecretKey: Boolean(stripeSecretKey),
+      stripeWebhookSecret: Boolean(
+        stripeWebhookSecret,
+      ),
+      supabaseUrl: Boolean(supabaseUrl),
+      supabaseServiceRoleKey: Boolean(
+        supabaseServiceRoleKey,
+      ),
+      resendApiKey: Boolean(resendApiKey),
+    },
   });
 }
 
 export async function POST(req: NextRequest) {
   if (!stripeSecretKey) {
     return NextResponse.json(
-      { error: "STRIPE_SECRET_KEY is missing." },
+      {
+        error: "STRIPE_SECRET_KEY is missing.",
+      },
       { status: 500 },
     );
   }
 
-  if (!webhookSecret) {
+  if (!stripeWebhookSecret) {
     return NextResponse.json(
-      { error: "STRIPE_WEBHOOK_SECRET is missing." },
+      {
+        error: "STRIPE_WEBHOOK_SECRET is missing.",
+      },
       { status: 500 },
     );
   }
@@ -402,380 +736,83 @@ export async function POST(req: NextRequest) {
   let event: Stripe.Event;
 
   try {
-    /*
-     * Stripe signature verification requires the
-     * unmodified raw request body.
-     */
     const rawBody = await req.text();
     const stripe = getStripe();
 
     event = stripe.webhooks.constructEvent(
       rawBody,
       signature,
-      webhookSecret,
+      stripeWebhookSecret,
     );
   } catch (error: unknown) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Invalid Stripe webhook signature.";
+
     console.error(
       "Stripe webhook signature verification failed:",
-      error,
+      message,
     );
 
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Invalid Stripe webhook signature.",
+        error: message,
       },
       { status: 400 },
     );
   }
 
+  /*
+   * Acknowledge unrelated events immediately.
+   * Do not query Supabase or send email for them.
+   */
+  const supportedEvents = new Set([
+    "checkout.session.completed",
+    "checkout.session.async_payment_succeeded",
+    "checkout.session.expired",
+  ]);
+
+  if (!supportedEvents.has(event.type)) {
+    return NextResponse.json({
+      received: true,
+      processed: false,
+      ignored: true,
+      eventType: event.type,
+    });
+  }
+
   try {
     const supabase = getSupabaseAdmin();
-
-    if (
-      event.type === "checkout.session.completed" ||
-      event.type ===
-        "checkout.session.async_payment_succeeded"
-    ) {
-      const session =
-        event.data.object as Stripe.Checkout.Session;
-
-      if (session.payment_status !== "paid") {
-        console.log(
-          `Session ${session.id} is ${session.payment_status}.`,
-        );
-
-        return NextResponse.json({
-          received: true,
-          processed: false,
-          reason: "Payment not yet marked as paid.",
-        });
-      }
-
-      const metadata = session.metadata || {};
-
-      const referralCode =
-        metadata.referralCode ||
-        metadata.referral_code ||
-        "";
-
-      const consultationReason =
-        metadata.consultationReason ||
-        metadata.consultation_reason ||
-        null;
-
-      const patientFirstName =
-        metadata.patientFirstName ||
-        metadata.patient_first_name ||
-        null;
-
-      const patientSurname =
-        metadata.patientSurname ||
-        metadata.patient_surname ||
-        null;
-
-      const metadataPatientName =
-        metadata.patientName ||
-        metadata.patient_name ||
-        null;
-
-      const patientName =
-        metadataPatientName ||
-        [patientFirstName, patientSurname]
-          .filter(Boolean)
-          .join(" ") ||
-        null;
-
-      const patientId =
-        metadata.patientId ||
-        metadata.patient_id ||
-        null;
-
-      const patientEmail =
-        metadata.patientEmail ||
-        metadata.patient_email ||
-        session.customer_details?.email ||
-        session.customer_email ||
-        null;
-
-      const patientMobile =
-        metadata.patientMobile ||
-        metadata.patient_mobile ||
-        metadata.patientPhone ||
-        metadata.patient_phone ||
-        session.customer_details?.phone ||
-        null;
-
-      if (!referralCode) {
-        console.error(
-          `Stripe session ${session.id} has no referral code.`,
-          metadata,
-        );
-
-        /*
-         * This is a permanent metadata/configuration error.
-         * Returning 200 avoids endless Stripe retries.
-         */
-        return NextResponse.json({
-          received: true,
-          processed: false,
-          reason:
-            "Paid session has no referral code metadata.",
-        });
-      }
-
-      const paymentIntentId =
-        typeof session.payment_intent === "string"
-          ? session.payment_intent
-          : session.payment_intent?.id || null;
-
-      /*
-       * Check the existing referral first.
-       * This prevents duplicate emails when Stripe retries.
-       */
-      const {
-        data: existingReferral,
-        error: lookupError,
-      } = await supabase
-        .from("symptomai_referrals")
-        .select(
-          `
-            id,
-            referral_code,
-            consent_token,
-            patient_first_name,
-            patient_surname,
-            patient_name,
-            patient_id,
-            email,
-            mobile,
-            consultation_reason,
-            payment_status,
-            queue_status,
-            referral_status,
-            payment_notification_sent_at
-          `,
-        )
-        .eq("referral_code", referralCode)
-        .maybeSingle();
-
-      if (lookupError) {
-        throw new Error(
-          `Could not look up referral ${referralCode}: ${lookupError.message}`,
-        );
-      }
-
-      if (!existingReferral) {
-        console.error(
-          `No referral row found for ${referralCode}.`,
-        );
-
-        return NextResponse.json(
-          {
-            error:
-              `No referral was found for ${referralCode}.`,
-          },
-          { status: 500 },
-        );
-      }
-
-      const paidAt =
-        new Date().toISOString();
-
-      /*
-       * Update SymptomAI and release the record to
-       * the CareScriber inbox.
-       */
-      const {
-        data: updatedReferral,
-        error: updateError,
-      } = await supabase
-        .from("symptomai_referrals")
-        .update({
-          consultation_reason:
-            consultationReason ||
-            existingReferral.consultation_reason,
-
-          patient_first_name:
-            patientFirstName ||
-            existingReferral.patient_first_name,
-
-          patient_surname:
-            patientSurname ||
-            existingReferral.patient_surname,
-
-          patient_name:
-            patientName ||
-            existingReferral.patient_name,
-
-          patient_id:
-            patientId ||
-            existingReferral.patient_id,
-
-          email:
-            patientEmail ||
-            existingReferral.email,
-
-          mobile:
-            patientMobile ||
-            existingReferral.mobile,
-
-          payment_status: "paid",
-
-          /*
-           * CareScriber should query records with
-           * queue_status = waiting and
-           * referral_status = ready_for_doctor.
-           */
-          queue_status: "waiting",
-          referral_status: "ready_for_doctor",
-
-          consultation_fee: 250,
-          currency: "ZAR",
-
-          stripe_checkout_session_id:
-            session.id,
-
-          stripe_payment_intent_id:
-            paymentIntentId,
-
-          paid_at: paidAt,
-          updated_at: paidAt,
-        })
-        .eq("id", existingReferral.id)
-        .select(
-          `
-            id,
-            referral_code,
-            patient_first_name,
-            patient_surname,
-            patient_name,
-            patient_id,
-            email,
-            mobile,
-            consultation_reason,
-            payment_status,
-            queue_status,
-            referral_status,
-            payment_notification_sent_at
-          `,
-        )
-        .single();
-
-      if (updateError) {
-        throw new Error(
-          `Could not update referral ${referralCode}: ${updateError.message}`,
-        );
-      }
-
-      let emailSent = false;
-
-      /*
-       * Stripe can retry the same event.
-       * Only send an email if it has not already
-       * been recorded as sent.
-       */
-      if (
-        !existingReferral.payment_notification_sent_at
-      ) {
-        const emailResult =
-          await sendPaymentNotification({
-            referralCode,
-            patientName:
-              updatedReferral.patient_name ||
-              [
-                updatedReferral.patient_first_name,
-                updatedReferral.patient_surname,
-              ]
-                .filter(Boolean)
-                .join(" ") ||
-              null,
-
-            patientId:
-              updatedReferral.patient_id,
-
-            patientEmail:
-              updatedReferral.email,
-
-            patientMobile:
-              updatedReferral.mobile,
-
-            consultationReason:
-              updatedReferral.consultation_reason,
-
-            paymentIntentId,
-            stripeSessionId: session.id,
-            paidAt,
-          });
-
-        const { error: notificationUpdateError } =
-          await supabase
-            .from("symptomai_referrals")
-            .update({
-              payment_notification_sent_at:
-                new Date().toISOString(),
-
-              payment_notification_email_id:
-                emailResult?.id || null,
-
-              payment_notification_error: null,
-            })
-            .eq("id", existingReferral.id);
-
-        if (notificationUpdateError) {
-          throw new Error(
-            "Email was sent, but its status could not " +
-              `be saved: ${notificationUpdateError.message}`,
-          );
-        }
-
-        emailSent = true;
-      }
-
-      console.log(
-        `Payment confirmed. Referral ${referralCode} released to CareScriber.`,
-      );
-
-      return NextResponse.json({
-        received: true,
-        processed: true,
-        referralCode,
-        paymentStatus: "paid",
-        queueStatus: "waiting",
-        referralStatus: "ready_for_doctor",
-        notificationEmailSent: emailSent,
-      });
-    }
 
     if (event.type === "checkout.session.expired") {
       const session =
         event.data.object as Stripe.Checkout.Session;
 
-      const metadata = session.metadata || {};
-
       const referralCode =
-        metadata.referralCode ||
-        metadata.referral_code ||
-        "";
+        getReferralCode(session);
 
       if (referralCode) {
         const { error } = await supabase
           .from("symptomai_referrals")
           .update({
             payment_status: "expired",
-            referral_status: "awaiting_payment",
             queue_status: "not_released",
+            referral_status: "awaiting_payment",
             updated_at: new Date().toISOString(),
           })
-          .eq("referral_code", referralCode)
+          .ilike("referral_code", referralCode)
           .neq("payment_status", "paid");
 
         if (error) {
-          console.error(
+          /*
+           * Expiry processing is non-critical.
+           * A failed expiry must not create continuous
+           * webhook retries.
+           */
+          console.warn(
             `Could not expire referral ${referralCode}:`,
-            error,
+            error.message,
           );
         }
       }
@@ -784,30 +821,170 @@ export async function POST(req: NextRequest) {
         received: true,
         processed: true,
         eventType: event.type,
+        referralCode: referralCode || null,
       });
     }
 
+    const session =
+      event.data.object as Stripe.Checkout.Session;
+
+    if (session.payment_status !== "paid") {
+      return NextResponse.json({
+        received: true,
+        processed: false,
+        reason: "Payment is not marked as paid.",
+        paymentStatus: session.payment_status,
+      });
+    }
+
+    const referralCode =
+      getReferralCode(session);
+
+    if (!referralCode) {
+      /*
+       * This is a permanent Checkout configuration issue.
+       * Return 200 so Stripe does not retry forever.
+       */
+      console.error(
+        `Paid Checkout Session ${session.id} has no ` +
+          "referral code in metadata or client_reference_id.",
+      );
+
+      return NextResponse.json({
+        received: true,
+        processed: false,
+        permanentError: true,
+        reason:
+          "No referral code was attached to the Checkout Session.",
+        stripeSessionId: session.id,
+      });
+    }
+
+    const existingReferral =
+      await findReferral(
+        supabase,
+        referralCode,
+      );
+
+    if (!existingReferral) {
+      /*
+       * A missing database record will not be corrected by
+       * repeatedly retrying the same Stripe event.
+       */
+      console.error(
+        `No SymptomAI referral exists for ${referralCode}.`,
+      );
+
+      return NextResponse.json({
+        received: true,
+        processed: false,
+        permanentError: true,
+        reason:
+          `No referral was found for ${referralCode}.`,
+        referralCode,
+        stripeSessionId: session.id,
+      });
+    }
+
+    const alreadyReleased =
+      existingReferral.payment_status === "paid" &&
+      existingReferral.queue_status === "waiting" &&
+      existingReferral.referral_status ===
+        "ready_for_doctor";
+
+    let updatedReferral = existingReferral;
+
+    if (!alreadyReleased) {
+      updatedReferral =
+        await releaseReferralToInbox({
+          supabase,
+          existingReferral,
+          session,
+          referralCode,
+        });
+    }
+
+    /*
+     * Return successful payment processing independently
+     * of notification email delivery.
+     */
+    try {
+      const notificationAlreadySent =
+        Boolean(
+          updatedReferral
+            .payment_notification_sent_at,
+        );
+
+      if (!notificationAlreadySent) {
+        const emailId =
+          await sendPaymentNotification({
+            referralCode,
+            referral: updatedReferral,
+            session,
+          });
+
+        if (emailId) {
+          await recordNotificationResult({
+            referralId: existingReferral.id,
+            emailId,
+          });
+        }
+      }
+    } catch (emailError: unknown) {
+      const message =
+        emailError instanceof Error
+          ? emailError.message
+          : "Payment notification email failed.";
+
+      console.error(
+        "Payment notification failed:",
+        message,
+      );
+
+      await recordNotificationResult({
+        referralId: existingReferral.id,
+        errorMessage: message,
+      });
+
+      /*
+       * Do not throw. The payment and doctor-inbox release
+       * have already succeeded.
+       */
+    }
+
+    console.log(
+      `Referral ${referralCode} released to CareScriber.`,
+    );
+
     return NextResponse.json({
       received: true,
-      processed: false,
-      eventType: event.type,
+      processed: true,
+      alreadyReleased,
+      referralCode,
+      stripeSessionId: session.id,
+      paymentStatus: "paid",
+      queueStatus: "waiting",
+      referralStatus: "ready_for_doctor",
     });
   } catch (error: unknown) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Stripe webhook processing failed.";
+
     console.error(
       "Stripe webhook processing error:",
-      error,
+      message,
     );
 
     /*
-     * Returning 500 allows Stripe to retry
-     * temporary database or email failures.
+     * Return 500 only for genuine temporary failures,
+     * such as Supabase being unavailable.
      */
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Stripe webhook processing failed.",
+        error: message,
+        eventType: event.type,
       },
       { status: 500 },
     );
