@@ -53,6 +53,10 @@ type ReferralRecord = {
   created_at?: string | null;
   updated_at?: string | null;
 
+  carescriber_release_status?: string | null;
+  released_to_carescriber_at?: string | null;
+  carescriber_release_error?: string | null;
+
   patient_snapshot?: unknown;
   triage_snapshot?: unknown;
   triage_summary?: unknown;
@@ -188,14 +192,12 @@ function getPaymentIntentId(
 }
 
 function buildCareScriberEndpoint(): string {
-  if (!careScriberApiUrl) {
-    throw new Error(
-      "CARESCRIBER_API_URL is missing.",
-    );
-  }
+  const configuredUrl =
+    careScriberApiUrl ||
+    "https://carescriber.com";
 
   const cleanUrl =
-    careScriberApiUrl.replace(/\/+$/, "");
+    configuredUrl.replace(/\/+$/, "");
 
   if (
     cleanUrl.endsWith(
@@ -922,6 +924,54 @@ async function sendReferralToCareScriber({
   return responseBody;
 }
 
+async function markReleaseSuccess(
+  referralId: string,
+) {
+  const supabase = getSupabaseAdmin();
+  const releasedAt = new Date().toISOString();
+
+  const { error } = await supabase
+    .from(REFERRAL_TABLE)
+    .update({
+      carescriber_release_status: "released",
+      released_to_carescriber_at: releasedAt,
+      carescriber_release_error: null,
+      updated_at: releasedAt,
+    })
+    .eq("id", referralId);
+
+  if (error) {
+    console.warn(
+      "CareScriber release succeeded, but release tracking could not be saved:",
+      error.message,
+    );
+  }
+}
+
+async function markReleaseFailure(
+  referralId: string,
+  message: string,
+) {
+  const supabase = getSupabaseAdmin();
+  const failedAt = new Date().toISOString();
+
+  const { error } = await supabase
+    .from(REFERRAL_TABLE)
+    .update({
+      carescriber_release_status: "failed",
+      carescriber_release_error: message.slice(0, 1000),
+      updated_at: failedAt,
+    })
+    .eq("id", referralId);
+
+  if (error) {
+    console.warn(
+      "Could not save the CareScriber release failure:",
+      error.message,
+    );
+  }
+}
+
 async function processPaidSession(
   session: Stripe.Checkout.Session,
   event: Stripe.Event,
@@ -1035,15 +1085,54 @@ async function processPaidSession(
       referralCode,
     });
 
-  const careScriberResponse =
-    await sendReferralToCareScriber({
-      referral:
-        updatedReferral,
+  const alreadyReleased =
+    existingReferral.carescriber_release_status === "released" ||
+    updatedReferral.carescriber_release_status === "released" ||
+    Boolean(
+      existingReferral.released_to_carescriber_at ||
+      updatedReferral.released_to_carescriber_at,
+    );
 
-      session,
+  let careScriberResponse: unknown = null;
 
+  if (!alreadyReleased) {
+    try {
+      careScriberResponse =
+        await sendReferralToCareScriber({
+          referral:
+            updatedReferral,
+
+          session,
+
+          referralCode,
+        });
+
+      await markReleaseSuccess(
+        updatedReferral.id,
+      );
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "CareScriber release failed.";
+
+      await markReleaseFailure(
+        updatedReferral.id,
+        message,
+      );
+
+      throw error;
+    }
+  } else {
+    trace(
+      "Referral inserted into CareScriber",
       referralCode,
-    });
+      {
+        duplicatePrevented: true,
+        referralId: updatedReferral.id,
+      },
+    );
+  }
 
   trace(
     "Processing completed",
@@ -1087,6 +1176,7 @@ async function processPaidSession(
       updatedReferral.referral_status ||
       "ready_for_doctor",
 
+    alreadyReleased,
     careScriberResponse,
   };
 }
@@ -1100,7 +1190,7 @@ export async function GET() {
       "SymptomAI Stripe webhook and CareScriber referral release",
 
     route:
-      "/api/stripe/webhook",
+      "/api/stripe-webhook",
 
     configured: {
       stripeSecretKey:
@@ -1127,6 +1217,9 @@ export async function GET() {
         Boolean(
           careScriberApiUrl,
         ),
+
+      effectiveCareScriberEndpoint:
+        buildCareScriberEndpoint(),
 
       careScriberApiSecret:
         Boolean(
@@ -1177,18 +1270,6 @@ export async function POST(
       {
         error:
           "Supabase server environment variables are missing.",
-      },
-      {
-        status: 500,
-      },
-    );
-  }
-
-  if (!careScriberApiUrl) {
-    return NextResponse.json(
-      {
-        error:
-          "CARESCRIBER_API_URL is missing.",
       },
       {
         status: 500,
