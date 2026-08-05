@@ -174,14 +174,12 @@ function normaliseBaseUrl(value: string): string {
 }
 
 function buildCareScriberEndpoint(): string {
-  if (!careScriberApiUrl) {
-    throw new Error(
-      "CARESCRIBER_API_URL is missing.",
-    );
-  }
+  const configuredUrl =
+    careScriberApiUrl ||
+    "https://carescriber.com";
 
   const baseUrl =
-    normaliseBaseUrl(careScriberApiUrl);
+    normaliseBaseUrl(configuredUrl);
 
   /*
    * CARESCRIBER_API_URL can be either:
@@ -711,16 +709,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!careScriberApiUrl) {
-      return NextResponse.json(
-        {
-          error:
-            "CARESCRIBER_API_URL is missing.",
-        },
-        { status: 500 },
-      );
-    }
-
     let body: VerifyPaymentBody;
 
     try {
@@ -766,6 +754,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    console.log("Webhook/payment verification received", {
+      sessionId,
+      requestedReferralCode:
+        requestedReferralCode || null,
+    });
+
     const stripe = getStripe();
 
     const session =
@@ -775,6 +769,12 @@ export async function POST(req: NextRequest) {
           expand: ["payment_intent"],
         },
       );
+
+    console.log("Stripe Checkout Session retrieved", {
+      sessionId: session.id,
+      paymentStatus: session.payment_status,
+      sessionStatus: session.status,
+    });
 
     const sessionReferralCode =
       getSessionReferralCode(session);
@@ -849,6 +849,10 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    console.log("Referral found in Stripe metadata", {
+      referralCode: sessionReferralCode,
+    });
+
     const referral =
       await findReferral(
         sessionReferralCode,
@@ -880,6 +884,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    console.log("Referral found in SymptomAI", {
+      referralId: referral.id,
+      referralCode: sessionReferralCode,
+    });
+
     const paidAt =
       referral.paid_at ||
       new Date().toISOString();
@@ -902,6 +911,13 @@ export async function POST(req: NextRequest) {
         payload,
       });
 
+    console.log("Referral updated to paid", {
+      referralId: updatedReferral.id,
+      referralCode: sessionReferralCode,
+      paymentStatus:
+        updatedReferral.payment_status || "paid",
+    });
+
     /*
      * If this referral has already been released successfully,
      * do not create another duplicate inbox record.
@@ -909,8 +925,11 @@ export async function POST(req: NextRequest) {
     const alreadyReleased =
       referral.carescriber_release_status ===
         "released" ||
+      updatedReferral.carescriber_release_status ===
+        "released" ||
       Boolean(
-        referral.released_to_carescriber_at,
+        referral.released_to_carescriber_at ||
+        updatedReferral.released_to_carescriber_at,
       );
 
     let careScriberResult:
@@ -923,10 +942,19 @@ export async function POST(req: NextRequest) {
 
     if (!alreadyReleased) {
       try {
+        console.log("Sending referral to CareScriber", {
+          referralCode: sessionReferralCode,
+        });
+
         careScriberResult =
           await sendReferralToCareScriber(
             payload,
           );
+
+        console.log("CareScriber responded", {
+          referralCode: sessionReferralCode,
+          status: careScriberResult.status,
+        });
 
         await markCareScriberReleaseSuccess({
           referralId:
@@ -947,44 +975,62 @@ export async function POST(req: NextRequest) {
             releaseMessage,
         });
 
-        return NextResponse.json(
-          {
-            paid: true,
-            released: false,
+        /*
+         * The payment is already successful. Return HTTP 200 so the
+         * patient is not incorrectly told that the card payment failed.
+         * The response clearly reports that CareScriber release still
+         * needs attention.
+         */
+        return NextResponse.json({
+          paid: true,
+          released: false,
+          alreadyReleased: false,
 
-            paymentStatus:
-              session.payment_status,
+          paymentStatus:
+            session.payment_status,
 
-            sessionStatus:
-              session.status,
+          sessionStatus:
+            session.status,
 
-            referralCode:
-              sessionReferralCode,
+          referralCode:
+            sessionReferralCode,
 
-            sessionId:
-              session.id,
+          sessionId:
+            session.id,
 
-            paymentIntentId:
-              getPaymentIntentId(session),
+          paymentIntentId:
+            getPaymentIntentId(session),
 
-            queueStatus:
-              updatedReferral.queue_status ||
-              "waiting",
+          consultationReason:
+            payload.consultationReason,
 
-            referralStatus:
-              updatedReferral.referral_status ||
-              "ready_for_doctor",
+          amountTotal:
+            session.amount_total,
 
-            error:
-              "Payment was confirmed, but the referral could not be sent to CareScriber.",
+          currency:
+            session.currency,
 
-            details:
-              releaseMessage,
-          },
-          { status: 502 },
-        );
+          queueStatus:
+            updatedReferral.queue_status ||
+            "waiting",
+
+          referralStatus:
+            updatedReferral.referral_status ||
+            "ready_for_doctor",
+
+          warning:
+            "Payment was confirmed, but the referral could not be sent to CareScriber.",
+
+          details:
+            releaseMessage,
+        });
       }
     }
+
+    console.log("Referral inserted into CareScriber", {
+      referralCode: sessionReferralCode,
+      alreadyReleased,
+    });
 
     return NextResponse.json({
       paid: true,
@@ -1005,6 +1051,15 @@ export async function POST(req: NextRequest) {
 
       paymentIntentId:
         getPaymentIntentId(session),
+
+      consultationReason:
+        payload.consultationReason,
+
+      amountTotal:
+        session.amount_total,
+
+      currency:
+        session.currency,
 
       queueStatus:
         updatedReferral.queue_status ||
