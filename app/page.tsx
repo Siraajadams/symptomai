@@ -133,6 +133,18 @@ const redFlags = [
   "Severe headache / worst headache",
 ];
 
+const consultationReasonOptions = [
+  "New Consultation with GP",
+  "Follow-up Consultation",
+  "New Prescription",
+  "Repeat Prescription",
+  "BodyLab (Weight Loss)",
+  "PillSquad (Contraception)",
+  "Other",
+] as const;
+
+type ConsultationReasonType =
+  (typeof consultationReasonOptions)[number] | "";
 
 const PAYMENT_CONTEXT_KEY = "symptomai_virtual_consult_context";
 
@@ -242,6 +254,8 @@ export default function Page() {
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
   const [selectedPatient, setSelectedPatient] =
     useState<PatientLookupResult | null>(null);
+  const [consultationReasonType, setConsultationReasonType] =
+    useState<ConsultationReasonType>("");
   const [consultationReason, setConsultationReason] = useState("");
   const [paymentStatus, setPaymentStatus] =
     useState<PaymentStatus>("not_started");
@@ -290,6 +304,28 @@ export default function Page() {
           if (typeof parsed?.consultationReason === "string") {
             restoredReason = parsed.consultationReason;
             setConsultationReason(parsed.consultationReason);
+
+            const restoredType =
+              typeof parsed?.consultationReasonType === "string"
+                ? parsed.consultationReasonType
+                : consultationReasonOptions.includes(
+                    parsed.consultationReason as (typeof consultationReasonOptions)[number],
+                  )
+                  ? parsed.consultationReason
+                  : parsed.consultationReason
+                    ? "Other"
+                    : "";
+
+            if (
+              restoredType === "" ||
+              consultationReasonOptions.includes(
+                restoredType as (typeof consultationReasonOptions)[number],
+              )
+            ) {
+              setConsultationReasonType(
+                restoredType as ConsultationReasonType,
+              );
+            }
           }
 
           if (typeof parsed?.selectedPatientId === "string") {
@@ -432,6 +468,14 @@ export default function Page() {
 
   function patientFullName() {
     return `${form.firstName} ${form.surname}`.trim() || form.name.trim();
+  }
+
+  function finalConsultationReason() {
+    if (consultationReasonType === "Other") {
+      return consultationReason.trim();
+    }
+
+    return consultationReasonType.trim();
   }
 
   function calculateAgeFromDob(dob: string) {
@@ -645,7 +689,11 @@ export default function Page() {
       }
 
       setReferral(apiResult.referral);
-      persistVirtualConsultContext(apiResult.referral, consultationReason);
+      persistVirtualConsultContext(
+        apiResult.referral,
+        finalConsultationReason(),
+        consultationReasonType,
+      );
 
       setReferralMessage(
         apiResult.patientCreated
@@ -665,7 +713,8 @@ export default function Page() {
 
   function persistVirtualConsultContext(
     referralOverride: ReferralDetails | null = referral,
-    reasonOverride: string = consultationReason,
+    reasonOverride: string = finalConsultationReason(),
+    reasonTypeOverride: ConsultationReasonType = consultationReasonType,
   ) {
     try {
       window.localStorage.setItem(
@@ -675,6 +724,7 @@ export default function Page() {
           result,
           referral: referralOverride,
           consultationReason: reasonOverride,
+          consultationReasonType: reasonTypeOverride,
           selectedPatientId,
         }),
       );
@@ -689,16 +739,25 @@ export default function Page() {
       return;
     }
 
-    const reason = consultationReason.trim();
+    const reason = finalConsultationReason();
 
-    if (!reason) {
+    if (!consultationReasonType) {
+      alert("Please select the reason for consultation or prescription request.");
+      return;
+    }
+
+    if (consultationReasonType === "Other" && !reason) {
       alert("Please enter the reason for consultation or prescription request.");
       return;
     }
 
     setPaymentStatus("pending");
     setPaymentMessage("");
-    persistVirtualConsultContext(referral, reason);
+    persistVirtualConsultContext(
+      referral,
+      reason,
+      consultationReasonType,
+    );
 
     try {
       const response = await fetch("/api/virtual-consult-payment", {
@@ -762,6 +821,7 @@ export default function Page() {
     setPatientLookupMessage("");
     setSelectedPatientId(null);
     setSelectedPatient(null);
+    setConsultationReasonType("");
     setConsultationReason("");
     setPaymentStatus("not_started");
     setPaymentMessage("");
@@ -834,7 +894,7 @@ Symptoms: ${selectedSymptoms || "None selected"}
 Symptom duration: ${form.duration || "Not selected"}
 Red flags: ${form.redFlags.length ? form.redFlags.join(", ") : "None selected"}
 Notes: ${form.notes || "None"}
-Reason for consultation / prescription request: ${consultationReason || "Not provided"}
+Reason for consultation / prescription request: ${finalConsultationReason() || "Not provided"}
 Payment status: ${paymentStatus}
 
 Outcome: ${result?.level || "Pending"}
@@ -1215,6 +1275,47 @@ Generated by SymptomAI.`;
           border-top: 1px solid #dceeee;
         }
 
+        .consultation-reason-options {
+          display: grid;
+          gap: 10px;
+          margin-top: 10px;
+        }
+
+        .consultation-reason-option {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          border: 2px solid #dfe9ea;
+          border-radius: 18px;
+          padding: 14px 16px;
+          background: #ffffff;
+          cursor: pointer;
+          font-weight: 800;
+          margin-bottom: 0;
+        }
+
+        .consultation-reason-option.selected {
+          border-color: #1dcfc1;
+          background: #e9fbf9;
+        }
+
+        .consultation-reason-option input[type="radio"] {
+          width: 20px;
+          height: 20px;
+          margin: 0;
+          padding: 0;
+          accent-color: #1dcfc1;
+          flex: 0 0 auto;
+        }
+
+        .consultation-reason-option span {
+          line-height: 1.35;
+        }
+
+        .other-reason-field {
+          margin-top: 14px;
+        }
+
         .availability-notice {
           margin-top: 16px;
           padding: 16px;
@@ -1387,7 +1488,7 @@ Generated by SymptomAI.`;
                   </div>
                 )}
 
-                {referral && consultationReason.trim() && (
+                {referral && finalConsultationReason() && (
                   <button
                     type="button"
                     className="button"
@@ -1467,20 +1568,73 @@ Generated by SymptomAI.`;
                 <div className="referral-code">{referral.consent_token}</div>
 
                 <div className="payment-panel">
-                  <label htmlFor="consultationReason">
+                  <label>
                     Reason for consultation / prescription request
                   </label>
-                  <textarea
-                    id="consultationReason"
-                    value={consultationReason}
-                    onChange={(e) => {
-                      const nextReason = e.target.value;
-                      setConsultationReason(nextReason);
-                      persistVirtualConsultContext(referral, nextReason);
-                    }}
-                    placeholder="Briefly describe the symptoms, health concern, medication or prescription required."
-                    disabled={paymentStatus === "paid"}
-                  />
+
+                  <div
+                    className="consultation-reason-options"
+                    role="radiogroup"
+                    aria-label="Reason for consultation or prescription request"
+                  >
+                    {consultationReasonOptions.map((option) => (
+                      <label
+                        key={option}
+                        className={`consultation-reason-option ${
+                          consultationReasonType === option ? "selected" : ""
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="consultationReasonType"
+                          value={option}
+                          checked={consultationReasonType === option}
+                          disabled={paymentStatus === "paid"}
+                          onChange={() => {
+                            setConsultationReasonType(option);
+
+                            const nextReason =
+                              option === "Other" ? "" : option;
+
+                            setConsultationReason(nextReason);
+
+                            persistVirtualConsultContext(
+                              referral,
+                              nextReason,
+                              option,
+                            );
+                          }}
+                        />
+
+                        <span>{option}</span>
+                      </label>
+                    ))}
+                  </div>
+
+                  {consultationReasonType === "Other" && (
+                    <div className="other-reason-field">
+                      <label htmlFor="consultationReason">
+                        Please describe the reason
+                      </label>
+
+                      <textarea
+                        id="consultationReason"
+                        value={consultationReason}
+                        onChange={(e) => {
+                          const nextReason = e.target.value;
+                          setConsultationReason(nextReason);
+
+                          persistVirtualConsultContext(
+                            referral,
+                            nextReason,
+                            "Other",
+                          );
+                        }}
+                        placeholder="Briefly describe the symptoms, health concern, medication or prescription required."
+                        disabled={paymentStatus === "paid"}
+                      />
+                    </div>
+                  )}
 
                   {afterHours ? (
                     <div className="after-hours-notice">
@@ -1501,7 +1655,9 @@ Generated by SymptomAI.`;
                     className="button"
                     onClick={startVirtualConsultPayment}
                     disabled={
-                      !consultationReason.trim() ||
+                      !consultationReasonType ||
+                      (consultationReasonType === "Other" &&
+                        !consultationReason.trim()) ||
                       paymentStatus === "pending" ||
                       paymentStatus === "verifying" ||
                       paymentStatus === "paid"
@@ -1527,7 +1683,8 @@ Generated by SymptomAI.`;
                         be released to the CareScriber doctor inbox.
                       </div>
                       <div style={{ marginTop: 10 }}>
-                        <b>Reason:</b> {consultationReason || "Saved with payment"}
+                        <b>Reason:</b>{" "}
+                        {finalConsultationReason() || "Saved with payment"}
                       </div>
                       <div style={{ marginTop: 10 }}>
                         Keep referral code <b>{referral.referral_code}</b> and
