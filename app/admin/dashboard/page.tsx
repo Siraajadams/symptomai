@@ -1,16 +1,21 @@
 import { createClient } from "@supabase/supabase-js";
+import type { CSSProperties, ReactNode } from "react";
 
 export const dynamic = "force-dynamic";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    persistSession: false,
-    autoRefreshToken: false,
-  },
-});
+const supabase = createClient(
+  supabaseUrl,
+  supabaseServiceKey,
+  {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  }
+);
 
 type AnyRow = Record<string, any>;
 
@@ -24,6 +29,7 @@ function formatMoney(value: number) {
 
 function percentage(part: number, total: number) {
   if (!total) return "0%";
+
   return `${((part / total) * 100).toFixed(1)}%`;
 }
 
@@ -44,7 +50,8 @@ function getAge(date?: string | null) {
 
   let age = now.getFullYear() - dob.getFullYear();
 
-  const monthDifference = now.getMonth() - dob.getMonth();
+  const monthDifference =
+    now.getMonth() - dob.getMonth();
 
   if (
     monthDifference < 0 ||
@@ -58,7 +65,10 @@ function getAge(date?: string | null) {
 }
 
 function displayText(value: any) {
-  if (value === null || value === undefined) {
+  if (
+    value === null ||
+    value === undefined
+  ) {
     return "";
   }
 
@@ -67,13 +77,20 @@ function displayText(value: any) {
   }
 
   if (typeof value === "object") {
-    return JSON.stringify(value);
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "";
+    }
   }
 
   return String(value);
 }
 
-function getPatientName(patient: AnyRow, referral: AnyRow) {
+function getPatientName(
+  patient: AnyRow,
+  referral: AnyRow
+) {
   if (referral.patient_name) {
     return referral.patient_name;
   }
@@ -107,6 +124,7 @@ function getConsultationReason(
 ) {
   return (
     referral.consultation_reason ||
+    referral.consultationReason ||
     triage.consultation_reason ||
     triage.consultationReason ||
     triage.reason ||
@@ -151,7 +169,41 @@ function getRedFlags(triage: AnyRow) {
   );
 }
 
+function hasRedFlags(value: any) {
+  if (!value) return false;
+
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+
+  if (typeof value === "string") {
+    const cleaned =
+      value.trim().toLowerCase();
+
+    return (
+      cleaned !== "" &&
+      cleaned !== "none" &&
+      cleaned !== "false" &&
+      cleaned !== "no"
+    );
+  }
+
+  if (typeof value === "object") {
+    return (
+      Object.keys(value).length > 0
+    );
+  }
+
+  return Boolean(value);
+}
+
 export default async function AdminDashboardPage() {
+  /*
+   * ====================================
+   * LOAD DATA
+   * ====================================
+   */
+
   const [
     referralsResult,
     patientsResult,
@@ -170,10 +222,7 @@ export default async function AdminDashboardPage() {
 
     supabase
       .from("symptomai_triage")
-      .select("*")
-      .order("created_at", {
-        ascending: false,
-      }),
+      .select("*"),
   ]);
 
   const referrals: AnyRow[] =
@@ -213,285 +262,400 @@ export default async function AdminDashboardPage() {
   }
 
   /*
-   * ------------------------------------
-   * BUILD PATIENT LOOKUP
-   * ------------------------------------
+   * ====================================
+   * PATIENT LOOKUP
+   * ====================================
    */
 
-  const patientMap = new Map<string, AnyRow>();
+  const patientMap =
+    new Map<string, AnyRow>();
 
-  patients.forEach((patient) => {
-    if (patient.id) {
-      patientMap.set(
-        String(patient.id),
-        patient
-      );
-    }
+  patients.forEach(
+    (patient: AnyRow) => {
+      if (patient.id) {
+        patientMap.set(
+          String(patient.id),
+          patient
+        );
+      }
 
-    if (patient.patient_id) {
-      patientMap.set(
-        String(patient.patient_id),
-        patient
-      );
-    }
+      if (patient.patient_id) {
+        patientMap.set(
+          String(patient.patient_id),
+          patient
+        );
+      }
 
-    if (patient.id_number) {
-      patientMap.set(
-        String(patient.id_number),
-        patient
-      );
-    }
+      if (patient.id_number) {
+        patientMap.set(
+          String(patient.id_number),
+          patient
+        );
+      }
 
-    if (patient.national_id) {
-      patientMap.set(
-        String(patient.national_id),
-        patient
-      );
+      if (patient.national_id) {
+        patientMap.set(
+          String(patient.national_id),
+          patient
+        );
+      }
     }
-  });
+  );
 
   /*
-   * ------------------------------------
-   * BUILD TRIAGE LOOKUP
-   * ------------------------------------
+   * ====================================
+   * TRIAGE LOOKUP
+   * ====================================
    */
 
-  const triageMap = new Map<string, AnyRow>();
+  const triageMap =
+    new Map<string, AnyRow>();
 
-  triages.forEach((triage) => {
-    if (triage.id) {
-      triageMap.set(
-        String(triage.id),
-        triage
-      );
-    }
+  triages.forEach(
+    (triage: AnyRow) => {
+      if (triage.id) {
+        triageMap.set(
+          String(triage.id),
+          triage
+        );
+      }
 
-    if (triage.triage_id) {
-      triageMap.set(
-        String(triage.triage_id),
-        triage
-      );
+      if (triage.triage_id) {
+        triageMap.set(
+          String(triage.triage_id),
+          triage
+        );
+      }
     }
-  });
+  );
 
   /*
-   * ------------------------------------
-   * NORMALISE REFERRALS
-   * ------------------------------------
+   * ====================================
+   * NORMALISE REFERRAL ROWS
+   * ====================================
    */
 
-  const rows = referrals.map((referral) => {
-    const patient =
-      patientMap.get(
-        String(referral.patient_id || "")
-      ) || {};
+  const rows: AnyRow[] =
+    referrals.map(
+      (referral: AnyRow): AnyRow => {
+        const patient =
+          patientMap.get(
+            String(
+              referral.patient_id || ""
+            )
+          ) || {};
 
-    const triage =
-      triageMap.get(
-        String(referral.triage_id || "")
-      ) || {};
+        const triage =
+          triageMap.get(
+            String(
+              referral.triage_id || ""
+            )
+          ) || {};
 
-    const patientName =
-      getPatientName(patient, referral);
+        const patientName =
+          getPatientName(
+            patient,
+            referral
+          );
 
-    const gender =
-      patient.gender ||
-      referral.gender ||
-      "";
+        const patientEmail =
+          referral.patient_email ||
+          patient.email ||
+          "";
 
-    const dateOfBirth =
-      patient.date_of_birth ||
-      patient.dob ||
-      referral.date_of_birth ||
-      null;
+        const patientMobile =
+          referral.patient_mobile ||
+          referral.mobile ||
+          patient.mobile ||
+          patient.phone ||
+          "";
 
-    const patientEmail =
-      referral.patient_email ||
-      patient.email ||
-      "";
+        const gender =
+          patient.gender ||
+          referral.gender ||
+          "";
 
-    const patientMobile =
-      referral.patient_mobile ||
-      patient.mobile ||
-      patient.phone ||
-      "";
+        const dateOfBirth =
+          patient.date_of_birth ||
+          patient.dob ||
+          referral.date_of_birth ||
+          referral.dob ||
+          null;
 
-    const consultationReason =
-      getConsultationReason(
-        referral,
-        triage
-      );
+        const consultationReason =
+          getConsultationReason(
+            referral,
+            triage
+          );
 
-    const triageOutcome =
-      getTriageOutcome(
-        referral,
-        triage
-      );
+        const triageOutcome =
+          getTriageOutcome(
+            referral,
+            triage
+          );
 
-    const symptoms =
-      getSymptoms(triage);
+        const symptoms =
+          getSymptoms(triage);
 
-    const redFlags =
-      getRedFlags(triage);
+        const redFlags =
+          getRedFlags(triage);
 
-    return {
-      ...referral,
+        const doctorName =
+          referral.assigned_doctor_name ||
+          "Not accepted";
 
-      patientName,
-      patientEmail,
-      patientMobile,
+        const doctorId =
+          referral.assigned_doctor_id ||
+          null;
 
-      gender,
-      dateOfBirth,
+        const paymentStatus =
+          referral.payment_status ||
+          "pending";
 
-      consultationReason,
-      triageOutcome,
+        const referralStatus =
+          referral.referral_status ||
+          "pending";
 
-      symptoms,
-      redFlags,
+        const paymentAmount =
+          Number(
+            referral.payment_amount || 0
+          );
 
-      doctorName:
-        referral.assigned_doctor_name ||
-        "Not accepted",
+        return {
+          ...referral,
 
-      doctorId:
-        referral.assigned_doctor_id ||
-        null,
+          id: referral.id ?? null,
 
-      paymentStatus:
-        referral.payment_status ||
-        "pending",
+          created_at:
+            referral.created_at ?? null,
 
-      referralStatus:
-        referral.referral_status ||
-        "pending",
+          accepted_at:
+            referral.accepted_at ?? null,
 
-      paymentAmount:
-        Number(
-          referral.payment_amount || 0
-        ),
-    };
-  });
+          completed_at:
+            referral.completed_at ??
+            null,
+
+          referral_code:
+            referral.referral_code ??
+            null,
+
+          patient_id:
+            referral.patient_id ??
+            null,
+
+          triage_id:
+            referral.triage_id ??
+            null,
+
+          patientName,
+          patientEmail,
+          patientMobile,
+
+          gender,
+          dateOfBirth,
+
+          consultationReason,
+          triageOutcome,
+
+          symptoms,
+          redFlags,
+
+          doctorName,
+          doctorId,
+
+          paymentStatus,
+          referralStatus,
+          paymentAmount,
+        };
+      }
+    );
 
   /*
-   * ------------------------------------
+   * ====================================
    * DATE FILTERS
-   * ------------------------------------
+   * ====================================
    */
 
   const now = new Date();
 
-  const monthStart = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    1
-  );
+  const monthStart =
+    new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      1
+    );
 
   const todayString =
-    now.toISOString().slice(0, 10);
+    now
+      .toISOString()
+      .slice(0, 10);
 
   const todayReferrals =
-    rows.filter((item) =>
-      item.created_at?.startsWith(
-        todayString
-      )
+    rows.filter(
+      (item: AnyRow) => {
+        const createdAt =
+          item.created_at;
+
+        return (
+          typeof createdAt ===
+            "string" &&
+          createdAt.startsWith(
+            todayString
+          )
+        );
+      }
     );
 
   const monthlyReferrals =
-    rows.filter((item) => {
-      if (!item.created_at) {
-        return false;
-      }
+    rows.filter(
+      (item: AnyRow) => {
+        if (!item.created_at) {
+          return false;
+        }
 
-      return (
-        new Date(item.created_at) >=
-        monthStart
-      );
-    });
+        return (
+          new Date(
+            item.created_at
+          ) >= monthStart
+        );
+      }
+    );
 
   /*
-   * ------------------------------------
-   * PAYMENT METRICS
-   * ------------------------------------
+   * ====================================
+   * PAYMENT STATUS
+   * ====================================
    */
 
-  const paid = rows.filter(
-    (item) =>
-      normalise(item.paymentStatus) ===
-      "paid"
-  );
+  const paid: AnyRow[] =
+    rows.filter(
+      (item: AnyRow) =>
+        normalise(
+          item.paymentStatus
+        ) === "paid"
+    );
 
-  const pendingPayment =
-    rows.filter((item) => {
+  const pendingPayment:
+    AnyRow[] = rows.filter(
+    (item: AnyRow) => {
       const payment =
-        normalise(item.paymentStatus);
+        normalise(
+          item.paymentStatus
+        );
 
       const status =
-        normalise(item.referralStatus);
+        normalise(
+          item.referralStatus
+        );
 
       return (
         payment === "pending" ||
-        payment === "not_started" ||
-        payment === "verifying" ||
+        payment ===
+          "not_started" ||
+        payment ===
+          "verifying" ||
+        payment === "" ||
         status ===
           "awaiting_payment"
       );
-    });
-
-  /*
-   * ------------------------------------
-   * ACCEPTED / COMPLETED
-   * ------------------------------------
-   */
-
-  const accepted = rows.filter(
-    (item) =>
-      Boolean(item.accepted_at) ||
-      Boolean(item.doctorId) ||
-      Boolean(
-        item.assigned_doctor_name
-      ) ||
-      normalise(
-        item.referralStatus
-      ) === "accepted" ||
-      normalise(
-        item.referralStatus
-      ) === "completed"
-  );
-
-  const completed = rows.filter(
-    (item) =>
-      normalise(
-        item.referralStatus
-      ) === "completed" ||
-      Boolean(item.completed_at)
+    }
   );
 
   /*
-   * ------------------------------------
-   * REVENUE
-   * ------------------------------------
+   * ====================================
+   * DOCTOR ACCEPTED
+   * ====================================
    */
 
-  const monthPaid = paid.filter(
-    (item) => {
+  const accepted: AnyRow[] =
+    rows.filter(
+      (item: AnyRow) => {
+        const status =
+          normalise(
+            item.referralStatus
+          );
+
+        return (
+          Boolean(
+            item.accepted_at
+          ) ||
+          Boolean(
+            item.doctorId
+          ) ||
+          Boolean(
+            item.assigned_doctor_name
+          ) ||
+          status === "accepted" ||
+          status === "completed"
+        );
+      }
+    );
+
+  /*
+   * ====================================
+   * COMPLETED
+   * ====================================
+   */
+
+  const completed:
+    AnyRow[] = rows.filter(
+    (item: AnyRow) => {
+      const status =
+        normalise(
+          item.referralStatus
+        );
+
+      return (
+        status ===
+          "completed" ||
+        status ===
+          "complete" ||
+        Boolean(
+          item.completed_at
+        )
+      );
+    }
+  );
+
+  /*
+   * ====================================
+   * MONTHLY REVENUE
+   * ====================================
+   */
+
+  const monthPaid:
+    AnyRow[] = paid.filter(
+    (item: AnyRow) => {
       if (!item.created_at) {
         return false;
       }
 
       return (
-        new Date(item.created_at) >=
-        monthStart
+        new Date(
+          item.created_at
+        ) >= monthStart
       );
-    });
+    }
+  );
 
   const revenue =
     monthPaid.reduce(
-      (sum, item) => {
+      (
+        sum: number,
+        item: AnyRow
+      ) => {
         const amount =
           Number(
-            item.paymentAmount
+            item.paymentAmount ||
+              0
           );
+
+        /*
+         * Historical records may
+         * have NULL payment_amount.
+         * Fallback to R250.
+         */
 
         return (
           sum +
@@ -504,16 +668,16 @@ export default async function AdminDashboardPage() {
     );
 
   /*
-   * ------------------------------------
+   * ====================================
    * UNIQUE PATIENTS
-   * ------------------------------------
+   * ====================================
    */
 
   const uniquePatients =
     new Set(
       rows
         .map(
-          (item) =>
+          (item: AnyRow) =>
             item.patient_id ||
             item.patientEmail ||
             item.patientName
@@ -522,22 +686,26 @@ export default async function AdminDashboardPage() {
     ).size;
 
   /*
-   * ------------------------------------
+   * ====================================
    * DEMOGRAPHICS
-   * ------------------------------------
+   * ====================================
    */
 
-  const female = rows.filter(
-    (item) =>
-      normalise(item.gender) ===
-      "female"
-  );
+  const female =
+    rows.filter(
+      (item: AnyRow) =>
+        normalise(
+          item.gender
+        ) === "female"
+    );
 
-  const male = rows.filter(
-    (item) =>
-      normalise(item.gender) ===
-      "male"
-  );
+  const male =
+    rows.filter(
+      (item: AnyRow) =>
+        normalise(
+          item.gender
+        ) === "male"
+    );
 
   const demographicsTotal =
     female.length +
@@ -551,242 +719,304 @@ export default async function AdminDashboardPage() {
     over60: 0,
   };
 
-  rows.forEach((item) => {
-    const age =
-      getAge(item.dateOfBirth);
+  rows.forEach(
+    (item: AnyRow) => {
+      const age =
+        getAge(
+          item.dateOfBirth
+        );
 
-    if (age === null) {
-      return;
-    }
+      if (age === null) {
+        return;
+      }
 
-    if (age < 18) {
-      ageGroups.under18++;
-    } else if (age <= 30) {
-      ageGroups.age18to30++;
-    } else if (age <= 45) {
-      ageGroups.age31to45++;
-    } else if (age <= 60) {
-      ageGroups.age46to60++;
-    } else {
-      ageGroups.over60++;
+      if (age < 18) {
+        ageGroups.under18++;
+      } else if (
+        age <= 30
+      ) {
+        ageGroups.age18to30++;
+      } else if (
+        age <= 45
+      ) {
+        ageGroups.age31to45++;
+      } else if (
+        age <= 60
+      ) {
+        ageGroups.age46to60++;
+      } else {
+        ageGroups.over60++;
+      }
     }
-  });
+  );
 
   /*
-   * ------------------------------------
+   * ====================================
    * CONSULTATION REASONS
-   * ------------------------------------
+   * ====================================
    */
 
   const reasons:
-    Record<string, number> = {};
+    Record<string, number> =
+      {};
 
-  rows.forEach((item) => {
-    const reason =
-      item.consultationReason ||
-      "Not recorded";
+  rows.forEach(
+    (item: AnyRow) => {
+      const reason =
+        item.consultationReason ||
+        "Not recorded";
 
-    reasons[reason] =
-      (reasons[reason] || 0) + 1;
-  });
+      reasons[reason] =
+        (reasons[reason] ||
+          0) + 1;
+    }
+  );
 
   const reasonRows =
     Object.entries(reasons)
       .sort(
-        (a, b) => b[1] - a[1]
+        (a, b) =>
+          b[1] - a[1]
       )
       .slice(0, 8);
 
   /*
-   * ------------------------------------
+   * ====================================
    * TRIAGE OUTCOMES
-   * ------------------------------------
+   * ====================================
    */
 
   const outcomeCounts:
-    Record<string, number> = {};
+    Record<string, number> =
+      {};
 
-  triages.forEach((triage) => {
-    const outcome =
-      getTriageOutcome({}, triage) ||
-      "Not recorded";
+  triages.forEach(
+    (triage: AnyRow) => {
+      const outcome =
+        getTriageOutcome(
+          {},
+          triage
+        ) ||
+        "Not recorded";
 
-    outcomeCounts[outcome] =
-      (outcomeCounts[outcome] || 0) +
-      1;
-  });
+      outcomeCounts[outcome] =
+        (outcomeCounts[
+          outcome
+        ] || 0) + 1;
+    }
+  );
 
   const outcomeRows =
-    Object.entries(outcomeCounts)
+    Object.entries(
+      outcomeCounts
+    )
       .sort(
-        (a, b) => b[1] - a[1]
+        (a, b) =>
+          b[1] - a[1]
       )
       .slice(0, 8);
 
   /*
-   * ------------------------------------
-   * EMERGENCY
-   * ------------------------------------
+   * ====================================
+   * EMERGENCY / URGENT
+   * ====================================
    */
 
   const emergencyTriages =
-    triages.filter((triage) => {
-      const outcome =
-        normalise(
-          getTriageOutcome(
-            {},
-            triage
+    triages.filter(
+      (triage: AnyRow) => {
+        const outcome =
+          normalise(
+            getTriageOutcome(
+              {},
+              triage
+            )
+          );
+
+        return (
+          outcome.includes(
+            "emergency"
+          ) ||
+          outcome.includes(
+            "urgent"
           )
         );
-
-      return (
-        outcome.includes(
-          "emergency"
-        ) ||
-        outcome.includes("urgent")
-      );
-    });
+      }
+    );
 
   /*
-   * ------------------------------------
+   * ====================================
    * RED FLAGS
-   * ------------------------------------
+   * ====================================
    */
 
   const redFlagCases =
-    triages.filter((triage) => {
-      const flags =
-        getRedFlags(triage);
-
-      if (Array.isArray(flags)) {
-        return flags.length > 0;
-      }
-
-      if (
-        typeof flags === "string"
-      ) {
-        return flags.trim() !== "";
-      }
-
-      if (
-        typeof flags === "object" &&
-        flags !== null
-      ) {
-        return (
-          Object.keys(flags).length >
-          0
-        );
-      }
-
-      return false;
-    });
+    triages.filter(
+      (triage: AnyRow) =>
+        hasRedFlags(
+          getRedFlags(
+            triage
+          )
+        )
+    );
 
   /*
-   * ------------------------------------
-   * SYMPTOMS
-   * ------------------------------------
+   * ====================================
+   * TOP SYMPTOMS
+   * ====================================
    */
 
   const symptomCounts:
-    Record<string, number> = {};
+    Record<string, number> =
+      {};
 
-  triages.forEach((triage) => {
-    const symptoms =
-      getSymptoms(triage);
+  triages.forEach(
+    (triage: AnyRow) => {
+      const symptoms =
+        getSymptoms(
+          triage
+        );
 
-    if (Array.isArray(symptoms)) {
-      symptoms.forEach(
-        (symptom) => {
-          const label =
-            displayText(
-              symptom
-            ).trim();
-
-          if (!label) return;
-
-          symptomCounts[label] =
-            (symptomCounts[
-              label
-            ] || 0) + 1;
-        }
-      );
-    } else if (
-      typeof symptoms ===
-      "string"
-    ) {
-      symptoms
-        .split(",")
-        .map((item) =>
-          item.trim()
+      if (
+        Array.isArray(
+          symptoms
         )
-        .filter(Boolean)
-        .forEach(
-          (symptom) => {
+      ) {
+        symptoms.forEach(
+          (symptom: any) => {
+            const label =
+              displayText(
+                symptom
+              ).trim();
+
+            if (!label) {
+              return;
+            }
+
             symptomCounts[
-              symptom
+              label
             ] =
               (symptomCounts[
-                symptom
+                label
               ] || 0) + 1;
           }
         );
+
+        return;
+      }
+
+      if (
+        typeof symptoms ===
+        "string"
+      ) {
+        symptoms
+          .split(",")
+          .map(
+            (item) =>
+              item.trim()
+          )
+          .filter(Boolean)
+          .forEach(
+            (symptom) => {
+              symptomCounts[
+                symptom
+              ] =
+                (symptomCounts[
+                  symptom
+                ] || 0) + 1;
+            }
+          );
+      }
     }
-  });
+  );
 
   const topSymptoms =
     Object.entries(
       symptomCounts
     )
       .sort(
-        (a, b) => b[1] - a[1]
+        (a, b) =>
+          b[1] - a[1]
       )
       .slice(0, 10);
 
   /*
-   * ------------------------------------
-   * DOCTOR PERFORMANCE
-   * ------------------------------------
+   * ====================================
+   * DOCTOR ACTIVITY
+   * ====================================
    */
 
   const doctorCounts:
-    Record<string, number> = {};
+    Record<string, number> =
+      {};
 
-  accepted.forEach((item) => {
-    const doctor =
-      item.doctorName ||
-      "Unknown";
+  accepted.forEach(
+    (item: AnyRow) => {
+      const doctor =
+        item.doctorName ||
+        "Unknown";
 
-    if (
-      doctor === "Not accepted"
-    ) {
-      return;
+      if (
+        doctor ===
+        "Not accepted"
+      ) {
+        return;
+      }
+
+      doctorCounts[doctor] =
+        (doctorCounts[
+          doctor
+        ] || 0) + 1;
     }
-
-    doctorCounts[doctor] =
-      (doctorCounts[doctor] ||
-        0) + 1;
-  });
+  );
 
   const doctorRows =
     Object.entries(
       doctorCounts
     )
       .sort(
-        (a, b) => b[1] - a[1]
+        (a, b) =>
+          b[1] - a[1]
       )
       .slice(0, 10);
 
+  /*
+   * ====================================
+   * PAGE
+   * ====================================
+   */
+
   return (
     <main style={styles.page}>
-      <div style={styles.container}>
-        <header style={styles.header}>
-          <div style={styles.brandRow}>
-            <div style={styles.logo}>
+      <div
+        style={
+          styles.container
+        }
+      >
+        <header
+          style={
+            styles.header
+          }
+        >
+          <div
+            style={
+              styles.brandRow
+            }
+          >
+            <div
+              style={
+                styles.logo
+              }
+            >
               S
             </div>
 
             <div>
-              <h1 style={styles.title}>
+              <h1
+                style={
+                  styles.title
+                }
+              >
                 SymptomAI Admin
               </h1>
 
@@ -796,8 +1026,9 @@ export default async function AdminDashboardPage() {
                 }
               >
                 Clinical triage,
-                referral and virtual
-                consultation analytics
+                referral and
+                virtual consultation
+                analytics
               </p>
             </div>
           </div>
@@ -812,45 +1043,58 @@ export default async function AdminDashboardPage() {
                 styles.liveDot
               }
             />
+
             LIVE
           </div>
         </header>
 
-        {errors.length > 0 && (
+        {errors.length >
+          0 && (
           <div
             style={
               styles.warning
             }
           >
             Some dashboard
-            datasets could not be
-            loaded. Check the
-            Vercel server logs for
-            the Supabase query
+            datasets could not
+            be loaded. Check
+            your Vercel server
+            logs for the
+            Supabase query
             error.
           </div>
         )}
 
-        {/* PRIMARY KPIs */}
+        {/* =========================
+            PRIMARY KPIs
+        ========================== */}
 
         <section
-          style={styles.grid4}
+          style={
+            styles.grid4
+          }
         >
           <StatCard
             label="Total Triages"
-            value={triages.length}
+            value={
+              triages.length
+            }
             note="All SymptomAI triage records"
           />
 
           <StatCard
             label="Virtual Consult Referrals"
-            value={rows.length}
+            value={
+              rows.length
+            }
             note={`${todayReferrals.length} today`}
           />
 
           <StatCard
             label="Paid Consults"
-            value={paid.length}
+            value={
+              paid.length
+            }
             note={`${percentage(
               paid.length,
               rows.length
@@ -859,16 +1103,28 @@ export default async function AdminDashboardPage() {
 
           <StatCard
             label="Revenue This Month"
-            value={formatMoney(
-              revenue
-            )}
+            value={
+              formatMoney(
+                revenue
+              )
+            }
             note={`${monthPaid.length} paid consultations`}
           />
         </section>
 
         <section
-          style={styles.grid4}
+          style={
+            styles.grid4
+          }
         >
+          <StatCard
+            label="Referrals This Month"
+            value={
+              monthlyReferrals.length
+            }
+            note="Current month"
+          />
+
           <StatCard
             label="Unique Patients"
             value={
@@ -898,18 +1154,54 @@ export default async function AdminDashboardPage() {
               rows.length
             )} completion`}
           />
+        </section>
 
+        <section
+          style={
+            styles.grid4
+          }
+        >
           <StatCard
             label="Emergency / Urgent"
             value={
               emergencyTriages.length
             }
-            note="Clinical escalation"
+            note="Clinical escalations"
             danger
+          />
+
+          <StatCard
+            label="Red Flag Cases"
+            value={
+              redFlagCases.length
+            }
+            note="Detected in triage"
+            danger
+          />
+
+          <StatCard
+            label="Pending Payment"
+            value={
+              pendingPayment.length
+            }
+            note="Awaiting payment"
+          />
+
+          <StatCard
+            label="Triage → VC"
+            value={
+              percentage(
+                rows.length,
+                triages.length
+              )
+            }
+            note="Virtual consult referral rate"
           />
         </section>
 
-        {/* FUNNEL + DEMOGRAPHICS */}
+        {/* =========================
+            FUNNEL + DEMOGRAPHICS
+        ========================== */}
 
         <section
           style={
@@ -919,14 +1211,22 @@ export default async function AdminDashboardPage() {
           <DashboardCard title="Virtual Consultation Funnel">
             <ProgressRow
               label="Referral created"
-              value={rows.length}
-              total={rows.length}
+              value={
+                rows.length
+              }
+              total={
+                rows.length
+              }
             />
 
             <ProgressRow
               label="Payment confirmed"
-              value={paid.length}
-              total={rows.length}
+              value={
+                paid.length
+              }
+              total={
+                rows.length
+              }
             />
 
             <ProgressRow
@@ -934,7 +1234,9 @@ export default async function AdminDashboardPage() {
               value={
                 accepted.length
               }
-              total={rows.length}
+              total={
+                rows.length
+              }
             />
 
             <ProgressRow
@@ -942,7 +1244,9 @@ export default async function AdminDashboardPage() {
               value={
                 completed.length
               }
-              total={rows.length}
+              total={
+                rows.length
+              }
             />
 
             <div
@@ -1027,7 +1331,9 @@ export default async function AdminDashboardPage() {
           </DashboardCard>
         </section>
 
-        {/* TRIAGE */}
+        {/* =========================
+            TRIAGE
+        ========================== */}
 
         <section
           style={
@@ -1042,8 +1348,9 @@ export default async function AdminDashboardPage() {
                   styles.muted
                 }
               >
-                No triage outcome
-                data found.
+                No triage
+                outcome data
+                found.
               </p>
             ) : (
               outcomeRows.map(
@@ -1099,13 +1406,17 @@ export default async function AdminDashboardPage() {
 
               <StatusBox
                 label="VC Referrals"
-                value={rows.length}
+                value={
+                  rows.length
+                }
               />
             </div>
           </DashboardCard>
         </section>
 
-        {/* REASONS + STATUS */}
+        {/* =========================
+            REASONS + STATUS
+        ========================== */}
 
         <section
           style={
@@ -1121,7 +1432,8 @@ export default async function AdminDashboardPage() {
                 }
               >
                 No consultation
-                reason data found.
+                reason data
+                found.
               </p>
             ) : (
               reasonRows.map(
@@ -1130,9 +1442,15 @@ export default async function AdminDashboardPage() {
                   count,
                 ]) => (
                   <ProgressRow
-                    key={reason}
-                    label={reason}
-                    value={count}
+                    key={
+                      reason
+                    }
+                    label={
+                      reason
+                    }
+                    value={
+                      count
+                    }
                     total={
                       rows.length
                     }
@@ -1179,7 +1497,9 @@ export default async function AdminDashboardPage() {
           </DashboardCard>
         </section>
 
-        {/* SYMPTOMS + DOCTORS */}
+        {/* =========================
+            SYMPTOMS + DOCTORS
+        ========================== */}
 
         <section
           style={
@@ -1231,8 +1551,9 @@ export default async function AdminDashboardPage() {
                   styles.muted
                 }
               >
-                No assigned doctor
-                data found.
+                No assigned
+                doctor data
+                found.
               </p>
             ) : (
               doctorRows.map(
@@ -1241,9 +1562,15 @@ export default async function AdminDashboardPage() {
                   count,
                 ]) => (
                   <ProgressRow
-                    key={doctor}
-                    label={doctor}
-                    value={count}
+                    key={
+                      doctor
+                    }
+                    label={
+                      doctor
+                    }
+                    value={
+                      count
+                    }
                     total={
                       accepted.length
                     }
@@ -1254,7 +1581,9 @@ export default async function AdminDashboardPage() {
           </DashboardCard>
         </section>
 
-        {/* RECENT REFERRALS */}
+        {/* =========================
+            RECENT REFERRALS
+        ========================== */}
 
         <DashboardCard title="Recent Virtual Consult Referrals">
           <div
@@ -1263,7 +1592,9 @@ export default async function AdminDashboardPage() {
             }
           >
             <table
-              style={styles.table}
+              style={
+                styles.table
+              }
             >
               <thead>
                 <tr>
@@ -1327,11 +1658,16 @@ export default async function AdminDashboardPage() {
 
               <tbody>
                 {rows
-                  .slice(0, 30)
+                  .slice(
+                    0,
+                    30
+                  )
                   .map(
                     (
-                      item,
-                      index
+                      item:
+                        AnyRow,
+                      index:
+                        number
                     ) => (
                       <tr
                         key={
@@ -1436,10 +1772,13 @@ export default async function AdminDashboardPage() {
         </DashboardCard>
 
         <footer
-          style={styles.footer}
+          style={
+            styles.footer
+          }
         >
-          SymptomAI • Clinical
-          Triage & Virtual Consult
+          SymptomAI •
+          Clinical Triage &
+          Virtual Consult
           Analytics • Supabase
         </footer>
       </div>
@@ -1454,13 +1793,17 @@ function StatCard({
   danger = false,
 }: {
   label: string;
-  value: string | number;
+  value:
+    | string
+    | number;
   note: string;
   danger?: boolean;
 }) {
   return (
     <div
-      style={styles.statCard}
+      style={
+        styles.statCard
+      }
     >
       <p
         style={
@@ -1482,7 +1825,9 @@ function StatCard({
       </h2>
 
       <p
-        style={styles.statNote}
+        style={
+          styles.statNote
+        }
       >
         {note}
       </p>
@@ -1495,10 +1840,14 @@ function DashboardCard({
   children,
 }: {
   title: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
-    <div style={styles.card}>
+    <div
+      style={
+        styles.card
+      }
+    >
       <h3
         style={
           styles.cardTitle
@@ -1524,7 +1873,9 @@ function ProgressRow({
   const width =
     total > 0
       ? Math.min(
-          (value / total) * 100,
+          (value /
+            total) *
+            100,
           100
         )
       : 0;
@@ -1540,7 +1891,9 @@ function ProgressRow({
           styles.progressHeader
         }
       >
-        <span>{label}</span>
+        <span>
+          {label}
+        </span>
 
         <strong>
           {value}
@@ -1643,35 +1996,46 @@ function StatusPill({
 
   if (
     value === "paid" ||
-    value === "completed" ||
-    value === "complete" ||
-    value === "accepted"
+    value ===
+      "completed" ||
+    value ===
+      "complete" ||
+    value ===
+      "accepted"
   ) {
     background =
       "rgba(80, 255, 154, 0.14)";
 
-    color = "#50ff9a";
+    color =
+      "#50ff9a";
   }
 
   if (
     value ===
       "awaiting_payment" ||
-    value === "pending"
+    value ===
+      "pending" ||
+    value ===
+      "not_started"
   ) {
     background =
       "rgba(255, 190, 70, 0.14)";
 
-    color = "#ffcf6e";
+    color =
+      "#ffcf6e";
   }
 
   if (
-    value === "failed" ||
-    value === "emergency"
+    value ===
+      "failed" ||
+    value ===
+      "emergency"
   ) {
     background =
       "rgba(255, 87, 87, 0.14)";
 
-    color = "#ff7777";
+    color =
+      "#ff7777";
   }
 
   return (
@@ -1682,88 +2046,124 @@ function StatusPill({
         color,
       }}
     >
-      {text.replaceAll(
-        "_",
-        " "
-      )}
+      {text
+        .split("_")
+        .join(" ")}
     </span>
   );
 }
 
 const styles: Record<
   string,
-  React.CSSProperties
+  CSSProperties
 > = {
   page: {
-    minHeight: "100vh",
+    minHeight:
+      "100vh",
     background:
       "linear-gradient(135deg, #06131d 0%, #081c28 50%, #092634 100%)",
-    color: "#ffffff",
+    color:
+      "#ffffff",
     fontFamily:
       "Arial, Helvetica, sans-serif",
-    padding: "32px 20px",
+    padding:
+      "32px 20px",
   },
 
   container: {
-    maxWidth: "1450px",
-    margin: "0 auto",
+    maxWidth:
+      "1450px",
+    margin:
+      "0 auto",
   },
 
   header: {
-    display: "flex",
+    display:
+      "flex",
     justifyContent:
       "space-between",
-    alignItems: "center",
-    marginBottom: "30px",
+    alignItems:
+      "center",
+    marginBottom:
+      "30px",
   },
 
   brandRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: "14px",
+    display:
+      "flex",
+    alignItems:
+      "center",
+    gap:
+      "14px",
   },
 
   logo: {
-    width: "48px",
-    height: "48px",
-    borderRadius: "14px",
-    background: "#50ff9a",
-    color: "#052018",
-    fontWeight: 900,
-    fontSize: "28px",
-    display: "flex",
-    alignItems: "center",
+    width:
+      "48px",
+    height:
+      "48px",
+    borderRadius:
+      "14px",
+    background:
+      "#50ff9a",
+    color:
+      "#052018",
+    fontWeight:
+      900,
+    fontSize:
+      "28px",
+    display:
+      "flex",
+    alignItems:
+      "center",
     justifyContent:
       "center",
   },
 
   title: {
-    fontSize: "30px",
-    margin: 0,
-    fontWeight: 800,
+    fontSize:
+      "30px",
+    margin:
+      0,
+    fontWeight:
+      800,
   },
 
   subtitle: {
-    color: "#8ea5b5",
-    margin: "5px 0 0",
+    color:
+      "#8ea5b5",
+    margin:
+      "5px 0 0",
   },
 
   liveBadge: {
-    display: "flex",
-    alignItems: "center",
-    gap: "7px",
-    background: "#102735",
-    padding: "9px 14px",
-    borderRadius: "999px",
-    fontSize: "12px",
-    fontWeight: 800,
+    display:
+      "flex",
+    alignItems:
+      "center",
+    gap:
+      "7px",
+    background:
+      "#102735",
+    padding:
+      "9px 14px",
+    borderRadius:
+      "999px",
+    fontSize:
+      "12px",
+    fontWeight:
+      800,
   },
 
   liveDot: {
-    width: "8px",
-    height: "8px",
-    background: "#50ff9a",
-    borderRadius: "50%",
+    width:
+      "8px",
+    height:
+      "8px",
+    background:
+      "#50ff9a",
+    borderRadius:
+      "50%",
   },
 
   warning: {
@@ -1771,25 +2171,34 @@ const styles: Record<
       "rgba(255,176,32,0.13)",
     border:
       "1px solid rgba(255,176,32,0.35)",
-    padding: "14px 16px",
-    borderRadius: "12px",
-    marginBottom: "20px",
+    padding:
+      "14px 16px",
+    borderRadius:
+      "12px",
+    marginBottom:
+      "20px",
   },
 
   grid4: {
-    display: "grid",
+    display:
+      "grid",
     gridTemplateColumns:
       "repeat(auto-fit, minmax(220px, 1fr))",
-    gap: "18px",
-    marginBottom: "18px",
+    gap:
+      "18px",
+    marginBottom:
+      "18px",
   },
 
   twoColumn: {
-    display: "grid",
+    display:
+      "grid",
     gridTemplateColumns:
       "repeat(auto-fit, minmax(360px, 1fr))",
-    gap: "18px",
-    marginBottom: "18px",
+    gap:
+      "18px",
+    marginBottom:
+      "18px",
   },
 
   statCard: {
@@ -1797,14 +2206,19 @@ const styles: Record<
       "rgba(13, 34, 47, 0.95)",
     border:
       "1px solid #183b4f",
-    borderRadius: "18px",
-    padding: "22px",
+    borderRadius:
+      "18px",
+    padding:
+      "22px",
   },
 
   statLabel: {
-    color: "#8ea5b5",
-    fontSize: "13px",
-    margin: 0,
+    color:
+      "#8ea5b5",
+    fontSize:
+      "13px",
+    margin:
+      0,
     textTransform:
       "uppercase",
     letterSpacing:
@@ -1812,20 +2226,26 @@ const styles: Record<
   },
 
   statValue: {
-    fontSize: "33px",
+    fontSize:
+      "33px",
     margin:
       "10px 0 5px",
-    color: "#50ff9a",
+    color:
+      "#50ff9a",
   },
 
   dangerValue: {
-    color: "#ff7777",
+    color:
+      "#ff7777",
   },
 
   statNote: {
-    color: "#8499a8",
-    fontSize: "13px",
-    margin: 0,
+    color:
+      "#8499a8",
+    fontSize:
+      "13px",
+    margin:
+      0,
   },
 
   card: {
@@ -1833,125 +2253,177 @@ const styles: Record<
       "rgba(13, 34, 47, 0.95)",
     border:
       "1px solid #183b4f",
-    borderRadius: "18px",
-    padding: "22px",
-    marginBottom: "18px",
+    borderRadius:
+      "18px",
+    padding:
+      "22px",
+    marginBottom:
+      "18px",
   },
 
   cardTitle: {
-    marginTop: 0,
-    fontSize: "18px",
-    marginBottom: "22px",
+    marginTop:
+      0,
+    fontSize:
+      "18px",
+    marginBottom:
+      "22px",
   },
 
   progressBlock: {
-    marginBottom: "19px",
+    marginBottom:
+      "19px",
   },
 
   progressHeader: {
-    display: "flex",
+    display:
+      "flex",
     justifyContent:
       "space-between",
-    marginBottom: "8px",
-    fontSize: "14px",
+    marginBottom:
+      "8px",
+    fontSize:
+      "14px",
   },
 
   progressTrack: {
-    height: "8px",
-    background: "#183546",
+    height:
+      "8px",
+    background:
+      "#183546",
     borderRadius:
       "100px",
-    overflow: "hidden",
+    overflow:
+      "hidden",
   },
 
   progressBar: {
-    height: "100%",
-    background: "#50ff9a",
+    height:
+      "100%",
+    background:
+      "#50ff9a",
     borderRadius:
       "100px",
   },
 
   conversionBox: {
-    marginTop: "24px",
-    display: "flex",
+    marginTop:
+      "24px",
+    display:
+      "flex",
     justifyContent:
       "space-between",
-    alignItems: "center",
-    padding: "17px",
-    background: "#102b36",
-    borderRadius: "13px",
-    color: "#50ff9a",
+    alignItems:
+      "center",
+    padding:
+      "17px",
+    background:
+      "#102b36",
+    borderRadius:
+      "13px",
+    color:
+      "#50ff9a",
   },
 
   ageGrid: {
-    display: "grid",
+    display:
+      "grid",
     gridTemplateColumns:
       "repeat(auto-fit, minmax(85px, 1fr))",
-    gap: "10px",
-    marginTop: "24px",
+    gap:
+      "10px",
+    marginTop:
+      "24px",
   },
 
   miniStat: {
-    background: "#102b36",
-    padding: "13px",
-    borderRadius: "12px",
-    textAlign: "center",
+    background:
+      "#102b36",
+    padding:
+      "13px",
+    borderRadius:
+      "12px",
+    textAlign:
+      "center",
   },
 
   miniValue: {
-    display: "block",
-    fontSize: "19px",
-    color: "#50ff9a",
+    display:
+      "block",
+    fontSize:
+      "19px",
+    color:
+      "#50ff9a",
   },
 
   miniLabel: {
-    fontSize: "12px",
-    color: "#8ea5b5",
+    fontSize:
+      "12px",
+    color:
+      "#8ea5b5",
   },
 
   statusGrid: {
-    display: "grid",
+    display:
+      "grid",
     gridTemplateColumns:
       "1fr 1fr",
-    gap: "14px",
+    gap:
+      "14px",
   },
 
   statusBox: {
-    background: "#102b36",
-    borderRadius: "14px",
-    padding: "20px",
+    background:
+      "#102b36",
+    borderRadius:
+      "14px",
+    padding:
+      "20px",
   },
 
   statusValue: {
-    display: "block",
-    fontSize: "27px",
-    fontWeight: 800,
-    color: "#50ff9a",
+    display:
+      "block",
+    fontSize:
+      "27px",
+    fontWeight:
+      800,
+    color:
+      "#50ff9a",
   },
 
   statusLabel: {
-    color: "#8ea5b5",
-    fontSize: "13px",
+    color:
+      "#8ea5b5",
+    fontSize:
+      "13px",
   },
 
   tableWrapper: {
-    overflowX: "auto",
+    overflowX:
+      "auto",
   },
 
   table: {
-    width: "100%",
+    width:
+      "100%",
     borderCollapse:
       "collapse",
-    minWidth: "1100px",
+    minWidth:
+      "1100px",
   },
 
   th: {
-    color: "#7791a3",
-    padding: "12px",
+    color:
+      "#7791a3",
+    padding:
+      "12px",
     borderBottom:
       "1px solid #1a3b4c",
-    textAlign: "left",
-    fontSize: "12px",
+    textAlign:
+      "left",
+    fontSize:
+      "12px",
     textTransform:
       "uppercase",
   },
@@ -1961,33 +2433,45 @@ const styles: Record<
       "14px 12px",
     borderBottom:
       "1px solid #153344",
-    fontSize: "13px",
+    fontSize:
+      "13px",
   },
 
   smallText: {
-    color: "#708a99",
-    marginTop: "4px",
-    fontSize: "11px",
+    color:
+      "#708a99",
+    marginTop:
+      "4px",
+    fontSize:
+      "11px",
   },
 
   pill: {
-    padding: "5px 9px",
+    padding:
+      "5px 9px",
     borderRadius:
       "999px",
-    fontSize: "11px",
-    fontWeight: 700,
+    fontSize:
+      "11px",
+    fontWeight:
+      700,
     textTransform:
       "capitalize",
   },
 
   muted: {
-    color: "#8097a6",
+    color:
+      "#8097a6",
   },
 
   footer: {
-    color: "#557080",
-    fontSize: "12px",
-    textAlign: "center",
-    padding: "15px",
+    color:
+      "#557080",
+    fontSize:
+      "12px",
+    textAlign:
+      "center",
+    padding:
+      "15px",
   },
 };
